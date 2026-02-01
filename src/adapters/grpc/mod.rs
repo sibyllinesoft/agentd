@@ -22,6 +22,8 @@ use crate::core::intent::{
     IntentRequest, IntentResponse, IntentStatus, RequestConstraints, RequestMetadata,
     SandboxPreferences,
 };
+use crate::core::isolation::{ResourceLimits as CoreResourceLimits, SandboxSpec};
+use crate::core::sandbox::{SandboxId, SandboxManager, SandboxSelectionOptions};
 
 // Include generated proto code
 pub mod proto {
@@ -80,6 +82,7 @@ impl Default for GrpcConfig {
 pub struct GrpcAdapter {
     config: GrpcConfig,
     handler: RwLock<Option<Arc<dyn IntentHandler>>>,
+    sandbox_manager: RwLock<Option<Arc<dyn SandboxManager>>>,
     running: AtomicBool,
     stats: AdapterStatsInner,
     shutdown_tx: RwLock<Option<tokio::sync::oneshot::Sender<()>>>,
@@ -100,6 +103,7 @@ impl GrpcAdapter {
         Self {
             config,
             handler: RwLock::new(None),
+            sandbox_manager: RwLock::new(None),
             running: AtomicBool::new(false),
             stats: AdapterStatsInner {
                 requests_received: AtomicU64::new(0),
@@ -120,6 +124,12 @@ impl GrpcAdapter {
             listen_address: address,
             ..Default::default()
         })
+    }
+
+    /// Set the sandbox manager for this adapter
+    pub async fn set_sandbox_manager(&self, manager: Arc<dyn SandboxManager>) {
+        let mut sm = self.sandbox_manager.write().await;
+        *sm = Some(manager);
     }
 }
 
@@ -147,9 +157,16 @@ impl IngestAdapter for GrpcAdapter {
             *tx = Some(shutdown_tx);
         }
 
+        // Get the sandbox manager if available
+        let sandbox_manager = {
+            let sm = self.sandbox_manager.read().await;
+            sm.clone()
+        };
+
         // Create the gRPC service
         let service = GrpcService {
             handler: handler.clone(),
+            sandbox_manager,
             stats: Arc::new(ServiceStats {
                 requests_received: AtomicU64::new(0),
                 requests_succeeded: AtomicU64::new(0),
@@ -275,6 +292,7 @@ struct ServiceStats {
 /// gRPC service implementation
 struct GrpcService {
     handler: Arc<dyn IntentHandler>,
+    sandbox_manager: Option<Arc<dyn SandboxManager>>,
     stats: Arc<ServiceStats>,
 }
 
@@ -614,48 +632,256 @@ impl Agentd for GrpcService {
 
     async fn list_sandboxes(
         &self,
-        _request: Request<ListSandboxesRequest>,
+        request: Request<ListSandboxesRequest>,
     ) -> Result<Response<ListSandboxesResponse>, Status> {
-        // TODO: Implement sandbox listing
-        Ok(Response::new(ListSandboxesResponse { sandboxes: vec![] }))
+        let manager = self.sandbox_manager.as_ref()
+            .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
+
+        let sessions = manager.list_sessions().await
+            .map_err(|e| Status::internal(format!("Failed to list sessions: {}", e)))?;
+
+        let _state_filter = &request.get_ref().state_filter;
+
+        let sandboxes: Vec<proto::SandboxSummary> = sessions
+            .into_iter()
+            .map(|session| proto::SandboxSummary {
+                sandbox_id: session.sandbox_id.as_str().to_string(),
+                backend: String::new(), // TODO: Get from sandbox capabilities
+                profile: String::new(),
+                state: format!("{:?}", session.state),
+                created_at_ms: session.created_at.timestamp_millis() as u64,
+                last_active_at_ms: session.last_active_at.timestamp_millis() as u64,
+            })
+            .collect();
+
+        Ok(Response::new(ListSandboxesResponse { sandboxes }))
     }
 
     async fn create_sandbox(
         &self,
-        _request: Request<CreateSandboxRequest>,
+        request: Request<CreateSandboxRequest>,
     ) -> Result<Response<CreateSandboxResponse>, Status> {
-        // TODO: Implement sandbox creation
-        Err(Status::unimplemented("Sandbox creation not yet implemented"))
+        let manager = self.sandbox_manager.as_ref()
+            .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
+
+        let req = request.get_ref();
+
+        // Convert proto ResourceLimits to core ResourceLimits
+        let limits = req.limits.as_ref().map(|l| CoreResourceLimits {
+            max_memory_bytes: if l.max_memory_bytes > 0 { Some(l.max_memory_bytes) } else { None },
+            max_cpu_time_ms: if l.max_cpu_time_ms > 0 { Some(l.max_cpu_time_ms) } else { None },
+            max_wall_time_ms: if l.max_wall_time_ms > 0 { Some(l.max_wall_time_ms) } else { None },
+            max_processes: if l.max_processes > 0 { Some(l.max_processes) } else { None },
+            max_open_files: if l.max_open_files > 0 { Some(l.max_open_files) } else { None },
+            max_output_bytes: if l.max_output_bytes > 0 { Some(l.max_output_bytes) } else { None },
+            max_write_bytes: if l.max_write_bytes > 0 { Some(l.max_write_bytes) } else { None },
+            cpu_weight: None,
+        }).unwrap_or_default();
+
+        let spec = SandboxSpec {
+            profile: if req.profile.is_empty() { "default".to_string() } else { req.profile.clone() },
+            workdir: std::path::PathBuf::from(if req.workdir.is_empty() { "/workspace" } else { &req.workdir }),
+            allowed_paths_ro: req.allowed_paths_ro.iter().map(std::path::PathBuf::from).collect(),
+            allowed_paths_rw: req.allowed_paths_rw.iter().map(std::path::PathBuf::from).collect(),
+            allowed_network: vec![],
+            environment: vec![],
+            limits,
+            network_enabled: req.network_enabled,
+            seccomp_profile: None,
+            creation_timeout: std::time::Duration::from_secs(30),
+            labels: req.labels.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        };
+
+        let options = SandboxSelectionOptions {
+            preferred_id: None,
+            require_fresh: true,
+            required_capabilities: Default::default(),
+            preferred_backend: None,
+            required_labels: Default::default(),
+            use_pool: false,
+        };
+
+        let (session, sandbox) = manager.acquire(&spec, &options, "grpc-client").await
+            .map_err(|e| Status::internal(format!("Failed to create sandbox: {}", e)))?;
+
+        let caps = sandbox.capabilities();
+        let capabilities = convert_sandbox_caps_to_proto(caps);
+
+        Ok(Response::new(CreateSandboxResponse {
+            sandbox_id: session.sandbox_id.as_str().to_string(),
+            capabilities: Some(capabilities),
+        }))
     }
 
     async fn attach_sandbox(
         &self,
-        _request: Request<AttachSandboxRequest>,
+        request: Request<AttachSandboxRequest>,
     ) -> Result<Response<AttachSandboxResponse>, Status> {
-        // TODO: Implement sandbox attachment
-        Err(Status::unimplemented(
-            "Sandbox attachment not yet implemented",
-        ))
+        let manager = self.sandbox_manager.as_ref()
+            .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
+
+        let req = request.get_ref();
+        let sandbox_id = SandboxId::from_string(&req.sandbox_id);
+
+        // Check if sandbox exists
+        if let Some(session) = manager.get_session_by_sandbox(&sandbox_id).await
+            .map_err(|e| Status::internal(format!("Failed to get session: {}", e)))?
+        {
+            // Sandbox exists, return session info
+            return Ok(Response::new(AttachSandboxResponse {
+                session_id: session.session_id.clone(),
+                sandbox_id: session.sandbox_id.as_str().to_string(),
+                newly_created: false,
+                capabilities: None, // TODO: Get from sandbox
+            }));
+        }
+
+        // Sandbox doesn't exist - create if requested
+        if !req.create_if_missing {
+            return Err(Status::not_found(format!("Sandbox {} not found", req.sandbox_id)));
+        }
+
+        // Create new sandbox with provided spec
+        let create_spec = req.create_spec.as_ref()
+            .ok_or_else(|| Status::invalid_argument("create_spec required when create_if_missing is true"))?;
+
+        let limits = create_spec.limits.as_ref().map(|l| CoreResourceLimits {
+            max_memory_bytes: if l.max_memory_bytes > 0 { Some(l.max_memory_bytes) } else { None },
+            max_cpu_time_ms: if l.max_cpu_time_ms > 0 { Some(l.max_cpu_time_ms) } else { None },
+            max_wall_time_ms: if l.max_wall_time_ms > 0 { Some(l.max_wall_time_ms) } else { None },
+            max_processes: if l.max_processes > 0 { Some(l.max_processes) } else { None },
+            max_open_files: if l.max_open_files > 0 { Some(l.max_open_files) } else { None },
+            max_output_bytes: if l.max_output_bytes > 0 { Some(l.max_output_bytes) } else { None },
+            max_write_bytes: if l.max_write_bytes > 0 { Some(l.max_write_bytes) } else { None },
+            cpu_weight: None,
+        }).unwrap_or_default();
+
+        let spec = SandboxSpec {
+            profile: if create_spec.profile.is_empty() { "default".to_string() } else { create_spec.profile.clone() },
+            workdir: std::path::PathBuf::from(if create_spec.workdir.is_empty() { "/workspace" } else { &create_spec.workdir }),
+            allowed_paths_ro: create_spec.allowed_paths_ro.iter().map(std::path::PathBuf::from).collect(),
+            allowed_paths_rw: create_spec.allowed_paths_rw.iter().map(std::path::PathBuf::from).collect(),
+            allowed_network: vec![],
+            environment: vec![],
+            limits,
+            network_enabled: create_spec.network_enabled,
+            seccomp_profile: None,
+            creation_timeout: std::time::Duration::from_secs(30),
+            labels: create_spec.labels.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        };
+
+        let options = SandboxSelectionOptions {
+            preferred_id: Some(sandbox_id),
+            require_fresh: true,
+            required_capabilities: Default::default(),
+            preferred_backend: None,
+            required_labels: Default::default(),
+            use_pool: false,
+        };
+
+        let (session, sandbox) = manager.acquire(&spec, &options, "grpc-client").await
+            .map_err(|e| Status::internal(format!("Failed to create sandbox: {}", e)))?;
+
+        let caps = sandbox.capabilities();
+        let capabilities = convert_sandbox_caps_to_proto(caps);
+
+        Ok(Response::new(AttachSandboxResponse {
+            session_id: session.session_id.clone(),
+            sandbox_id: session.sandbox_id.as_str().to_string(),
+            newly_created: true,
+            capabilities: Some(capabilities),
+        }))
     }
 
     async fn terminate_sandbox(
         &self,
-        _request: Request<TerminateSandboxRequest>,
+        request: Request<TerminateSandboxRequest>,
     ) -> Result<Response<TerminateSandboxResponse>, Status> {
-        // TODO: Implement sandbox termination
-        Err(Status::unimplemented(
-            "Sandbox termination not yet implemented",
-        ))
+        let manager = self.sandbox_manager.as_ref()
+            .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
+
+        let req = request.get_ref();
+        let sandbox_id = SandboxId::from_string(&req.sandbox_id);
+
+        // Find session for this sandbox
+        let session = manager.get_session_by_sandbox(&sandbox_id).await
+            .map_err(|e| Status::internal(format!("Failed to get session: {}", e)))?
+            .ok_or_else(|| Status::not_found(format!("Sandbox {} not found", req.sandbox_id)))?;
+
+        // Terminate the session
+        manager.terminate(&session).await
+            .map_err(|e| Status::internal(format!("Failed to terminate sandbox: {}", e)))?;
+
+        Ok(Response::new(TerminateSandboxResponse {
+            success: true,
+            message: format!("Sandbox {} terminated", req.sandbox_id),
+        }))
     }
 
     async fn get_sandbox_capabilities(
         &self,
-        _request: Request<GetSandboxCapabilitiesRequest>,
+        request: Request<GetSandboxCapabilitiesRequest>,
     ) -> Result<Response<SandboxCapabilities>, Status> {
-        // TODO: Implement sandbox capabilities retrieval
-        Err(Status::unimplemented(
-            "Get sandbox capabilities not yet implemented",
-        ))
+        let manager = self.sandbox_manager.as_ref()
+            .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
+
+        let req = request.get_ref();
+        let sandbox_id = SandboxId::from_string(&req.sandbox_id);
+
+        // Find session for this sandbox
+        let session = manager.get_session_by_sandbox(&sandbox_id).await
+            .map_err(|e| Status::internal(format!("Failed to get session: {}", e)))?
+            .ok_or_else(|| Status::not_found(format!("Sandbox {} not found", req.sandbox_id)))?;
+
+        // Get the sandbox and its capabilities
+        // For now, return basic info from the session
+        // TODO: Get actual sandbox capabilities from the isolation backend
+        let capabilities = SandboxCapabilities {
+            sandbox_id: session.sandbox_id.as_str().to_string(),
+            backend: String::new(),
+            profile: String::new(),
+            can_write_filesystem: true,
+            readable_paths: vec![],
+            writable_paths: vec![],
+            has_network: false,
+            allowed_destinations: vec![],
+            limits: None,
+            syscall_filter_active: false,
+            blocked_syscall_categories: vec![],
+            is_persistent: false,
+            created_at_ms: session.created_at.timestamp_millis() as u64,
+            time_remaining_ms: 0,
+        };
+
+        Ok(Response::new(capabilities))
+    }
+}
+
+/// Convert core SandboxCapabilities to proto SandboxCapabilities
+fn convert_sandbox_caps_to_proto(caps: &crate::core::isolation::SandboxCapabilities) -> SandboxCapabilities {
+    SandboxCapabilities {
+        sandbox_id: caps.sandbox_id.clone(),
+        backend: caps.backend.clone(),
+        profile: caps.profile.clone(),
+        can_write_filesystem: caps.can_write_filesystem,
+        readable_paths: caps.readable_paths.iter().map(|p| p.to_string_lossy().to_string()).collect(),
+        writable_paths: caps.writable_paths.iter().map(|p| p.to_string_lossy().to_string()).collect(),
+        has_network: caps.has_network,
+        allowed_destinations: caps.allowed_destinations.clone(),
+        limits: Some(proto::ResourceLimits {
+            max_memory_bytes: caps.limits.max_memory_bytes.unwrap_or(0),
+            max_cpu_time_ms: caps.limits.max_cpu_time_ms.unwrap_or(0),
+            max_wall_time_ms: caps.limits.max_wall_time_ms.unwrap_or(0),
+            max_processes: caps.limits.max_processes.unwrap_or(0),
+            max_open_files: caps.limits.max_open_files.unwrap_or(0),
+            max_output_bytes: caps.limits.max_output_bytes.unwrap_or(0),
+            max_write_bytes: caps.limits.max_write_bytes.unwrap_or(0),
+        }),
+        syscall_filter_active: caps.syscall_filter_active,
+        blocked_syscall_categories: caps.blocked_syscall_categories.clone(),
+        is_persistent: caps.is_persistent,
+        created_at_ms: caps.created_at.timestamp_millis() as u64,
+        time_remaining_ms: caps.time_remaining_ms.unwrap_or(0),
     }
 }
 

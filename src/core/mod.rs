@@ -20,4 +20,4 @@ pub use ingest::{IngestAdapter, IntentHandler};
 pub use intent::{Command, IntentRequest, IntentResponse, IntentStatus};
 pub use isolation::{BackendCapabilities, IsolationBackend, Sandbox, SandboxCapabilities, SandboxSpec, StreamOutput};
 pub use output::{EmitContext, OutputMultiplexer, OutputSink, RoutingRule};
-pub use sandbox::{SandboxId, SandboxManager, SandboxSession};
+pub use sandbox::{RequiredCapabilities, SandboxId, SandboxManager, SandboxSelectionOptions, SandboxSession};

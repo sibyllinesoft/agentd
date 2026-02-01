@@ -331,6 +331,8 @@ impl AgentdRuntime {
             if let Some(listen_addr) = config.adapters.grpc.listen {
                 info!("Starting gRPC adapter on {}", listen_addr);
                 let grpc_adapter = Arc::new(crate::adapters::GrpcAdapter::with_address(listen_addr));
+                // Wire up the sandbox manager for sandbox lifecycle operations
+                grpc_adapter.set_sandbox_manager(self.sandbox_manager.clone()).await;
                 grpc_adapter.start(handler.clone()).await
                     .context("Failed to start gRPC adapter")?;
                 self.adapters.push(grpc_adapter);
