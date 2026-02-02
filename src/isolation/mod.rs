@@ -1,16 +1,21 @@
 //! Isolation backend implementations
 //!
 //! This module contains concrete implementations of the `IsolationBackend` trait:
-//! - `LinuxNativeBackend`: Wraps the existing smith-jailer for Linux
+//! - `LinuxNativeBackend`: Uses Landlock LSM for filesystem access control (no mount isolation)
+//! - `ContainerBackend`: Uses mount namespaces for true filesystem isolation
 //! - `HostDirectBackend`: No isolation, just policy guards (workstation mode)
 //!
 //! Future implementations:
 //! - `MacosNativeBackend`: Uses sandbox-exec (seatbelt)
-//! - `ContainerBackend`: Uses Docker/Podman via bollard
+//! - `VmBackend`: Uses microVMs (firecracker, cloud-hypervisor)
 
+#[cfg(target_os = "linux")]
+pub mod container;
 pub mod host_direct;
 pub mod linux;
 
+#[cfg(target_os = "linux")]
+pub use container::ContainerBackend;
 pub use host_direct::HostDirectBackend;
 pub use linux::LinuxNativeBackend;
 
@@ -51,7 +56,7 @@ pub fn create_backend(
     work_root: &std::path::Path,
 ) -> anyhow::Result<Arc<dyn IsolationBackend>> {
     match name {
-        "linux" | "native" | "linux-native" => {
+        "linux" | "native" | "linux-native" | "landlock" => {
             #[cfg(target_os = "linux")]
             {
                 Ok(Arc::new(LinuxNativeBackend::new(work_root)?))
@@ -59,6 +64,16 @@ pub fn create_backend(
             #[cfg(not(target_os = "linux"))]
             {
                 anyhow::bail!("LinuxNativeBackend is only available on Linux")
+            }
+        }
+        "container" | "namespace" | "mount-ns" => {
+            #[cfg(target_os = "linux")]
+            {
+                Ok(Arc::new(ContainerBackend::new(work_root, None)?))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                anyhow::bail!("ContainerBackend is only available on Linux")
             }
         }
         "none" | "host" | "host-direct" | "workstation" => {
