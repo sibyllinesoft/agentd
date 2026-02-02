@@ -36,3 +36,10 @@ tmp/
 # Environment files
 .env
 .env.local
+.env.production
+infra/compose/.env
+
+# Generated secrets (NEVER commit!)
+policy/data/egress_secrets.json
+**/secrets.json
+**/*_secrets.json

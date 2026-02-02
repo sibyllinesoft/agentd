@@ -1,0 +1,35 @@
+{
+  "gateway_config": {
+    "allow_any_key": false,
+    "require_https": false,
+    "max_request_body_bytes": 8192
+  },
+  "api_keys": [
+    {
+      "id": "dev-key-1",
+      "key": "dev-api-key-change-in-production",
+      "enabled": true,
+      "role": "admin",
+      "rate_limit_tier": "unlimited",
+      "description": "Development API key - replace in production"
+    }
+  ],
+  "rate_limit_tiers": {
+    "default": {
+      "requests_per_minute": 60,
+      "requests_per_hour": 1000
+    },
+    "standard": {
+      "requests_per_minute": 120,
+      "requests_per_hour": 5000
+    },
+    "premium": {
+      "requests_per_minute": 600,
+      "requests_per_hour": 20000
+    },
+    "unlimited": {
+      "requests_per_minute": -1,
+      "requests_per_hour": -1
+    }
+  }
+}

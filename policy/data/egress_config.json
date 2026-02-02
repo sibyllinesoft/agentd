@@ -1,0 +1,128 @@
+{
+  "egress_services": {
+    "openai": {
+      "display_name": "OpenAI API",
+      "base_url": "https://api.openai.com",
+      "allowed_methods": ["POST"],
+      "allowed_paths": [
+        "/v1/chat/completions",
+        "/v1/completions",
+        "/v1/embeddings",
+        "/v1/models",
+        "/v1/models/*"
+      ],
+      "description": "OpenAI GPT models and embeddings"
+    },
+    "anthropic": {
+      "display_name": "Anthropic API",
+      "base_url": "https://api.anthropic.com",
+      "allowed_methods": ["POST"],
+      "allowed_paths": [
+        "/v1/messages",
+        "/v1/complete"
+      ],
+      "description": "Anthropic Claude models"
+    },
+    "github": {
+      "display_name": "GitHub API",
+      "base_url": "https://api.github.com",
+      "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+      "allowed_paths": [
+        "/repos/*",
+        "/users/*",
+        "/orgs/*",
+        "/gists/*",
+        "/search/*"
+      ],
+      "description": "GitHub REST API"
+    },
+    "slack": {
+      "display_name": "Slack API",
+      "base_url": "https://slack.com/api",
+      "allowed_methods": ["POST"],
+      "allowed_paths": [
+        "/chat.postMessage",
+        "/conversations.list",
+        "/conversations.history",
+        "/users.list"
+      ],
+      "description": "Slack Web API"
+    },
+    "httpbin": {
+      "display_name": "HTTPBin (Testing)",
+      "base_url": "https://httpbin.org",
+      "allowed_methods": ["GET", "POST"],
+      "description": "HTTP testing service - for development only"
+    }
+  },
+  "egress_policies": {
+    "default": {
+      "description": "Default policy - no external API access",
+      "allowed_services": [],
+      "rate_limits": {}
+    },
+    "restricted": {
+      "description": "Restricted access - testing services only",
+      "allowed_services": ["httpbin"],
+      "rate_limits": {
+        "httpbin": {"tokens_per_minute": 10}
+      }
+    },
+    "standard": {
+      "description": "Standard access - common APIs with rate limits",
+      "allowed_services": ["openai", "anthropic", "github"],
+      "rate_limits": {
+        "openai": {"tokens_per_minute": 60},
+        "anthropic": {"tokens_per_minute": 60},
+        "github": {"tokens_per_minute": 100}
+      }
+    },
+    "premium": {
+      "description": "Premium access - higher rate limits",
+      "allowed_services": ["openai", "anthropic", "github", "slack"],
+      "rate_limits": {
+        "openai": {"tokens_per_minute": 300},
+        "anthropic": {"tokens_per_minute": 300},
+        "github": {"tokens_per_minute": 500},
+        "slack": {"tokens_per_minute": 100}
+      }
+    },
+    "admin": {
+      "description": "Admin access - all services, high limits",
+      "allowed_services": ["*"],
+      "rate_limits": {
+        "default": {"tokens_per_minute": 1000}
+      }
+    }
+  },
+  "sandbox_policies": {
+    "_comment": "Map sandbox IDs to policy tiers. In production, this would be dynamic.",
+    "sandbox-dev-001": "standard",
+    "sandbox-test-001": "restricted"
+  },
+  "egress_credentials": {
+    "_comment": "PLACEHOLDER - In production, use a secrets manager (Vault, AWS Secrets Manager, etc.)",
+    "_warning": "DO NOT commit real credentials. These are loaded from environment or secrets manager.",
+    "openai": {
+      "type": "bearer",
+      "token": "${OPENAI_API_KEY}",
+      "source": "env:OPENAI_API_KEY"
+    },
+    "anthropic": {
+      "type": "api_key",
+      "token": "${ANTHROPIC_API_KEY}",
+      "header": "x-api-key",
+      "source": "env:ANTHROPIC_API_KEY"
+    },
+    "github": {
+      "type": "bearer",
+      "token": "${GITHUB_TOKEN}",
+      "source": "env:GITHUB_TOKEN"
+    },
+    "slack": {
+      "type": "bearer",
+      "token": "${SLACK_BOT_TOKEN}",
+      "source": "env:SLACK_BOT_TOKEN"
+    }
+  }
+}

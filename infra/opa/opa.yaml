@@ -1,0 +1,36 @@
+# OPA configuration for agentd gateway
+#
+# Runs OPA as:
+# 1. Envoy ext_authz gRPC server (port 9191)
+# 2. Policy bundle server for agentd (port 8181)
+# 3. Admin API for policy management
+
+services:
+  # Bundle source (can be file, http, or s3)
+  agentd-bundles:
+    url: file:///bundles
+
+bundles:
+  agentd:
+    service: agentd-bundles
+    resource: agentd-bundle.tar.gz
+    polling:
+      min_delay_seconds: 10
+      max_delay_seconds: 30
+
+decision_logs:
+  console: true
+  reporting:
+    min_delay_seconds: 5
+    max_delay_seconds: 10
+
+status:
+  console: true
+
+plugins:
+  envoy_ext_authz_grpc:
+    addr: ":9191"
+    # Use router policy that delegates to gateway or egress based on context
+    path: agentd/authz
+    dry-run: false
+    enable-reflection: true
