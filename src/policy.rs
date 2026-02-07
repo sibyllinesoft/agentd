@@ -24,6 +24,7 @@ pub struct PolicyEngine {
     registry: Arc<PolicyRegistry>,
     host_context: HostContext,
     workspace_root: Option<PathBuf>,
+    allow_policy_disable_override: bool,
 }
 
 impl PolicyEngine {
@@ -57,6 +58,7 @@ impl PolicyEngine {
             registry: Arc::new(PolicyRegistry::new(default_limits)),
             host_context,
             workspace_root,
+            allow_policy_disable_override: !config.executor.capabilities.enforcement_enabled,
         })
     }
 
@@ -97,17 +99,24 @@ impl PolicyEngine {
 
     pub async fn evaluate(&self, intent: &smith_protocol::Intent) -> Result<PolicyResult> {
         if std::env::var("SMITH_EXECUTOR_DISABLE_POLICY").unwrap_or_default() == "1" {
+            if self.allow_policy_disable_override {
+                warn!(
+                    capability = ?intent.capability,
+                    "Policy enforcement disabled; auto-allowing intent"
+                );
+                return Ok(PolicyResult {
+                    allow: true,
+                    reason: Some("Policy enforcement disabled by configuration".to_string()),
+                    limits: self.registry.default_limits(),
+                    scope: serde_json::json!({}),
+                    policy_id: Some("policy.disabled.override".to_string()),
+                });
+            }
+
             warn!(
                 capability = ?intent.capability,
-                "Policy enforcement disabled; auto-allowing intent"
+                "Ignored SMITH_EXECUTOR_DISABLE_POLICY=1 because capability enforcement is enabled"
             );
-            return Ok(PolicyResult {
-                allow: true,
-                reason: Some("Policy enforcement disabled by configuration".to_string()),
-                limits: self.registry.default_limits(),
-                scope: serde_json::json!({}),
-                policy_id: None,
-            });
         }
 
         let capability_key = map_capability(&intent.capability)?;
@@ -702,10 +711,18 @@ async fn compile_policy(policy: smith_protocol::policy::OpaPolicy) -> Result<Com
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
+    use once_cell::sync::Lazy;
     use smith_protocol::Capability;
+    use std::sync::Mutex;
     use tempfile::tempdir;
 
-    fn create_test_intent(capability: Capability, params: serde_json::Value) -> smith_protocol::Intent {
+    static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+    fn create_test_intent(
+        capability: Capability,
+        params: serde_json::Value,
+    ) -> smith_protocol::Intent {
         smith_protocol::Intent::new(
             capability,
             "test-tenant".to_string(),
@@ -713,6 +730,43 @@ mod tests {
             30000, // ttl_ms
             "test-signer".to_string(),
         )
+    }
+
+    #[tokio::test]
+    async fn test_policy_disable_override_respected_when_enforcement_disabled() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let config = Config::testing();
+        let engine = PolicyEngine::new(&config).unwrap();
+        std::env::set_var("SMITH_EXECUTOR_DISABLE_POLICY", "1");
+        let intent = create_test_intent(Capability::ShellExec, json!({"command": "echo hi"}));
+
+        let result = engine.evaluate(&intent).await.unwrap();
+        std::env::remove_var("SMITH_EXECUTOR_DISABLE_POLICY");
+
+        assert!(result.allow);
+        assert_eq!(
+            result.policy_id.as_deref(),
+            Some("policy.disabled.override")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_policy_disable_override_ignored_when_enforcement_enabled() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let mut config = Config::testing();
+        config.executor.capabilities.enforcement_enabled = true;
+        let engine = PolicyEngine::new(&config).unwrap();
+        std::env::set_var("SMITH_EXECUTOR_DISABLE_POLICY", "1");
+        let intent = create_test_intent(Capability::ShellExec, json!({"command": "echo hi"}));
+
+        let result = engine.evaluate(&intent).await.unwrap();
+        std::env::remove_var("SMITH_EXECUTOR_DISABLE_POLICY");
+
+        assert!(result.allow);
+        assert_ne!(
+            result.policy_id.as_deref(),
+            Some("policy.disabled.override")
+        );
     }
 
     #[test]
@@ -795,10 +849,7 @@ mod tests {
 
     #[test]
     fn test_extract_resource_fs_read() {
-        let intent = create_test_intent(
-            Capability::FsReadV1,
-            json!({"path": "/tmp/test.txt"}),
-        );
+        let intent = create_test_intent(Capability::FsReadV1, json!({"path": "/tmp/test.txt"}));
         let result = extract_resource_identifier(&intent);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "/tmp/test.txt");
@@ -806,10 +857,7 @@ mod tests {
 
     #[test]
     fn test_extract_resource_fs_write() {
-        let intent = create_test_intent(
-            Capability::FsWriteV1,
-            json!({"path": "/tmp/output.txt"}),
-        );
+        let intent = create_test_intent(Capability::FsWriteV1, json!({"path": "/tmp/output.txt"}));
         let result = extract_resource_identifier(&intent);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "/tmp/output.txt");
@@ -861,10 +909,7 @@ mod tests {
 
     #[test]
     fn test_extract_resource_shell_exec() {
-        let intent = create_test_intent(
-            Capability::ShellExec,
-            json!({"command": "ls -la"}),
-        );
+        let intent = create_test_intent(Capability::ShellExec, json!({"command": "ls -la"}));
         let result = extract_resource_identifier(&intent);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "ls -la");
@@ -883,10 +928,7 @@ mod tests {
 
     #[test]
     fn test_extract_resource_missing_path() {
-        let intent = create_test_intent(
-            Capability::FsReadV1,
-            json!({}),
-        );
+        let intent = create_test_intent(Capability::FsReadV1, json!({}));
         let result = extract_resource_identifier(&intent);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Missing 'path'"));
@@ -894,10 +936,7 @@ mod tests {
 
     #[test]
     fn test_extract_resource_missing_url() {
-        let intent = create_test_intent(
-            Capability::HttpFetchV1,
-            json!({}),
-        );
+        let intent = create_test_intent(Capability::HttpFetchV1, json!({}));
         let result = extract_resource_identifier(&intent);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Missing 'url'"));
@@ -905,46 +944,46 @@ mod tests {
 
     #[test]
     fn test_extract_resource_missing_repository_url() {
-        let intent = create_test_intent(
-            Capability::GitCloneV1,
-            json!({}),
-        );
+        let intent = create_test_intent(Capability::GitCloneV1, json!({}));
         let result = extract_resource_identifier(&intent);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing 'repository_url'"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing 'repository_url'"));
     }
 
     #[test]
     fn test_extract_resource_missing_database_path() {
-        let intent = create_test_intent(
-            Capability::SqliteQueryV1,
-            json!({}),
-        );
+        let intent = create_test_intent(Capability::SqliteQueryV1, json!({}));
         let result = extract_resource_identifier(&intent);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing 'database_path'"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing 'database_path'"));
     }
 
     #[test]
     fn test_extract_resource_missing_benchmark_name() {
-        let intent = create_test_intent(
-            Capability::BenchReportV1,
-            json!({}),
-        );
+        let intent = create_test_intent(Capability::BenchReportV1, json!({}));
         let result = extract_resource_identifier(&intent);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing 'benchmark_name'"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing 'benchmark_name'"));
     }
 
     #[test]
     fn test_extract_resource_missing_command() {
-        let intent = create_test_intent(
-            Capability::ShellExec,
-            json!({}),
-        );
+        let intent = create_test_intent(Capability::ShellExec, json!({}));
         let result = extract_resource_identifier(&intent);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing 'command'"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing 'command'"));
     }
 
     #[test]
@@ -1187,9 +1226,7 @@ mod tests {
         };
         let registry = PolicyRegistry::new(default_limits);
 
-        let update = smith_protocol::policy::PolicyUpdate::Reset {
-            capability: None,
-        };
+        let update = smith_protocol::policy::PolicyUpdate::Reset { capability: None };
 
         let result = registry.apply_update(update).await;
         assert!(result.is_ok());

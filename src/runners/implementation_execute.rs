@@ -69,7 +69,54 @@ impl ImplementationExecuteRunner {
             }
         }
 
-        Ok(workdir.join(rel))
+        let workdir_canonical = workdir
+            .canonicalize()
+            .unwrap_or_else(|_| workdir.to_path_buf());
+        let candidate = workdir.join(&rel);
+
+        let resolved = if candidate.exists() {
+            candidate
+                .canonicalize()
+                .with_context(|| format!("Failed to resolve path {}", candidate.display()))?
+        } else {
+            // Resolve the deepest existing ancestor to keep symlink-escape checks
+            // while still allowing creation of new nested paths.
+            let mut ancestor = candidate.clone();
+            let mut missing_components = Vec::new();
+
+            while !ancestor.exists() {
+                let component = ancestor.file_name().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "File operation path has no resolvable ancestor: {}",
+                        candidate.display()
+                    )
+                })?;
+                missing_components.push(component.to_os_string());
+                ancestor = ancestor
+                    .parent()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "File operation path has no parent: {}",
+                            candidate.display()
+                        )
+                    })?
+                    .to_path_buf();
+            }
+
+            let mut resolved = ancestor.canonicalize().with_context(|| {
+                format!("Failed to resolve ancestor path {}", ancestor.display())
+            })?;
+            for component in missing_components.iter().rev() {
+                resolved.push(component);
+            }
+            resolved
+        };
+
+        if !resolved.starts_with(&workdir_canonical) {
+            anyhow::bail!("Resolved file operation path escapes workdir: {}", relative);
+        }
+
+        Ok(resolved)
     }
 }
 
@@ -164,5 +211,45 @@ impl Runner for ImplementationExecuteRunner {
             stdout_bytes: report.as_bytes().len() as u64,
             stderr_bytes: 0,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_target_path_allows_normal_relative_path() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let path = ImplementationExecuteRunner::resolve_target_path(temp.path(), "src/main.rs");
+        assert!(path.is_ok());
+        assert!(path.unwrap().starts_with(temp.path()));
+    }
+
+    #[test]
+    fn test_resolve_target_path_rejects_parent_traversal() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let result = ImplementationExecuteRunner::resolve_target_path(temp.path(), "../escape");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("may not traverse parent directories"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_resolve_target_path_rejects_symlink_escape() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let outside = tempfile::TempDir::new().unwrap();
+        let outside_target = outside.path().join("secret.txt");
+        std::fs::write(&outside_target, "secret").unwrap();
+
+        let symlink_path = temp.path().join("link.txt");
+        std::os::unix::fs::symlink(&outside_target, &symlink_path).unwrap();
+
+        let result = ImplementationExecuteRunner::resolve_target_path(temp.path(), "link.txt");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("escapes workdir"));
     }
 }

@@ -913,7 +913,10 @@ fn create_execution_context(
     };
 
     if scope_paths.is_empty()
-        && std::env::var("SMITH_EXECUTOR_DISABLE_POLICY").unwrap_or_default() == "1"
+        && matches!(
+            policy_result.policy_id.as_deref(),
+            Some("policy.disabled.override")
+        )
     {
         let fallback_scope = std::env::var("SMITH_WORKSPACE_ROOT")
             .ok()
@@ -1256,9 +1259,14 @@ async fn handle_admission_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use once_cell::sync::Lazy;
     use serde_json::json;
+    use std::sync::Mutex;
     use smith_protocol::ExecutionStatus;
     use std::collections::HashMap;
+    use tempfile::TempDir;
+
+    static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     // ==================== ProcessingOutcome Tests ====================
 
@@ -1413,7 +1421,10 @@ mod tests {
     #[test]
     fn test_extract_scope_paths_mixed_types() {
         let mut scope = serde_json::Map::new();
-        scope.insert("paths".to_string(), json!(["/valid", 123, null, "/also-valid"]));
+        scope.insert(
+            "paths".to_string(),
+            json!(["/valid", 123, null, "/also-valid"]),
+        );
         let paths = extract_scope_paths(&scope);
         assert_eq!(paths.len(), 2);
         assert!(paths.contains(&"/valid".to_string()));
@@ -1561,6 +1572,16 @@ mod tests {
         }
     }
 
+    fn create_test_jailed_execution(workdir: std::path::PathBuf) -> jailer::JailedExecution {
+        jailer::JailedExecution {
+            workdir,
+            limits: smith_protocol::ExecutionLimits::default(),
+            pid: 1234,
+            namespace_handle: None,
+            cgroup_config: None,
+        }
+    }
+
     #[test]
     fn test_create_execution_limits_defaults() {
         let policy_result = policy::PolicyResult {
@@ -1582,7 +1603,10 @@ mod tests {
         };
 
         let limits = create_execution_limits(&policy_result, &sandbox_profile);
-        assert_eq!(limits.cpu_ms_per_100ms, policy_result.limits.cpu_ms_per_100ms);
+        assert_eq!(
+            limits.cpu_ms_per_100ms,
+            policy_result.limits.cpu_ms_per_100ms
+        );
         assert_eq!(limits.mem_bytes, policy_result.limits.mem_bytes);
     }
 
@@ -1662,6 +1686,61 @@ mod tests {
 
         let limits = create_execution_limits(&policy_result, &sandbox_profile);
         assert_eq!(limits.mem_bytes, 256 * 1_048_576);
+    }
+
+    #[test]
+    fn test_create_execution_context_applies_fallback_scope_only_for_policy_override() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = TempDir::new().unwrap();
+        let jail_workdir = temp.path().join("jail");
+        std::fs::create_dir_all(&jail_workdir).unwrap();
+        let jailed_execution = create_test_jailed_execution(jail_workdir.clone());
+
+        let policy_result = policy::PolicyResult {
+            allow: true,
+            reason: Some("Policy enforcement disabled by configuration".to_string()),
+            limits: smith_protocol::ExecutionLimits::default(),
+            scope: serde_json::json!({}),
+            policy_id: Some("policy.disabled.override".to_string()),
+        };
+
+        std::env::set_var(
+            "SMITH_WORKSPACE_ROOT",
+            temp.path().to_string_lossy().to_string(),
+        );
+        let ctx = create_execution_context(&jailed_execution, &policy_result, "trace-id");
+        std::env::remove_var("SMITH_WORKSPACE_ROOT");
+
+        assert_eq!(ctx.scope.paths.len(), 1);
+        assert!(ctx.scope.paths[0].contains(temp.path().to_string_lossy().as_ref()));
+    }
+
+    #[test]
+    fn test_create_execution_context_does_not_apply_fallback_scope_without_policy_override() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = TempDir::new().unwrap();
+        let jail_workdir = temp.path().join("jail");
+        std::fs::create_dir_all(&jail_workdir).unwrap();
+        let jailed_execution = create_test_jailed_execution(jail_workdir);
+
+        let policy_result = policy::PolicyResult {
+            allow: true,
+            reason: None,
+            limits: smith_protocol::ExecutionLimits::default(),
+            scope: serde_json::json!({}),
+            policy_id: Some("builtin.default.allow".to_string()),
+        };
+
+        std::env::set_var(
+            "SMITH_WORKSPACE_ROOT",
+            temp.path().to_string_lossy().to_string(),
+        );
+        std::env::set_var("SMITH_EXECUTOR_DISABLE_POLICY", "1");
+        let ctx = create_execution_context(&jailed_execution, &policy_result, "trace-id");
+        std::env::remove_var("SMITH_EXECUTOR_DISABLE_POLICY");
+        std::env::remove_var("SMITH_WORKSPACE_ROOT");
+
+        assert!(ctx.scope.paths.is_empty());
     }
 
     // ==================== create_intent_result Tests ====================
@@ -1780,7 +1859,10 @@ mod tests {
 
         assert_eq!(result.runner_meta.cpu_ms, 150);
         assert_eq!(result.runner_meta.max_rss_kb, 2048);
-        assert_eq!(result.runner_meta.capability_digest, Some("digest-xyz".to_string()));
+        assert_eq!(
+            result.runner_meta.capability_digest,
+            Some("digest-xyz".to_string())
+        );
     }
 
     #[test]
@@ -1796,15 +1878,8 @@ mod tests {
         };
         let output_sink = runners::MemoryOutputSink::new();
 
-        let result = create_intent_result(
-            &intent,
-            &execution_result,
-            &output_sink,
-            0,
-            0,
-            "test",
-            0,
-        );
+        let result =
+            create_intent_result(&intent, &execution_result, &output_sink, 0, 0, "test", 0);
 
         assert_eq!(result.audit_ref.id, "audit-test-intent-123");
     }
@@ -2376,7 +2451,10 @@ mod tests {
             );
 
             // Store result for idempotency
-            idempotency_store.store_result(&intent.id, &result).await.ok();
+            idempotency_store
+                .store_result(&intent.id, &result)
+                .await
+                .ok();
 
             // Publish result to NATS
             result_publisher.publish_result(&intent.id, &result).await?;
@@ -2398,18 +2476,24 @@ mod tests {
             let mock_publisher = MockResultPublisher::new();
             let intent = create_test_intent("intent-1");
 
-            let result = handle_idempotency_generic(
-                &intent,
-                &mock_store,
-                &mock_publisher,
-                "trace-1",
-            )
-            .await
-            .unwrap();
+            let result =
+                handle_idempotency_generic(&intent, &mock_store, &mock_publisher, "trace-1")
+                    .await
+                    .unwrap();
 
             assert!(!result); // Not already processed
-            assert_eq!(mock_store.is_processed_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
-            assert_eq!(mock_store.mark_processing_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+            assert_eq!(
+                mock_store
+                    .is_processed_calls
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                1
+            );
+            assert_eq!(
+                mock_store
+                    .mark_processing_calls
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                1
+            );
             assert_eq!(mock_publisher.call_count(), 0); // No result to publish
         }
 
@@ -2423,14 +2507,10 @@ mod tests {
             // Pre-seed the result
             mock_store.seed_result("intent-1", cached_result).await;
 
-            let result = handle_idempotency_generic(
-                &intent,
-                &mock_store,
-                &mock_publisher,
-                "trace-1",
-            )
-            .await
-            .unwrap();
+            let result =
+                handle_idempotency_generic(&intent, &mock_store, &mock_publisher, "trace-1")
+                    .await
+                    .unwrap();
 
             assert!(result); // Already processed
             assert_eq!(mock_publisher.call_count(), 1); // Cached result published
@@ -2447,14 +2527,10 @@ mod tests {
             // Mark as processed but no cached result
             mock_store.mark_as_processed("intent-1").await;
 
-            let result = handle_idempotency_generic(
-                &intent,
-                &mock_store,
-                &mock_publisher,
-                "trace-1",
-            )
-            .await
-            .unwrap();
+            let result =
+                handle_idempotency_generic(&intent, &mock_store, &mock_publisher, "trace-1")
+                    .await
+                    .unwrap();
 
             assert!(result); // Already processed
             assert_eq!(mock_publisher.call_count(), 0); // No result to publish
@@ -2466,15 +2542,12 @@ mod tests {
             let mock_publisher = MockResultPublisher::new();
             let intent = create_test_intent("intent-1");
 
-            mock_store.should_fail_is_processed.store(true, std::sync::atomic::Ordering::SeqCst);
+            mock_store
+                .should_fail_is_processed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
 
-            let result = handle_idempotency_generic(
-                &intent,
-                &mock_store,
-                &mock_publisher,
-                "trace-1",
-            )
-            .await;
+            let result =
+                handle_idempotency_generic(&intent, &mock_store, &mock_publisher, "trace-1").await;
 
             assert!(result.is_err());
         }
@@ -2489,13 +2562,8 @@ mod tests {
             mock_store.seed_result("intent-1", cached_result).await;
             mock_publisher.fail_next(1);
 
-            let result = handle_idempotency_generic(
-                &intent,
-                &mock_store,
-                &mock_publisher,
-                "trace-1",
-            )
-            .await;
+            let result =
+                handle_idempotency_generic(&intent, &mock_store, &mock_publisher, "trace-1").await;
 
             assert!(result.is_err());
         }
@@ -2519,7 +2587,12 @@ mod tests {
             .await;
 
             assert!(finalize_result.is_ok());
-            assert_eq!(mock_store.store_result_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+            assert_eq!(
+                mock_store
+                    .store_result_calls
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                1
+            );
             assert_eq!(mock_publisher.call_count(), 1);
         }
 
@@ -2531,7 +2604,9 @@ mod tests {
             let result = create_test_result("intent-1");
 
             // Store failure should not prevent publish
-            mock_store.should_fail_store_result.store(true, std::sync::atomic::Ordering::SeqCst);
+            mock_store
+                .should_fail_store_result
+                .store(true, std::sync::atomic::Ordering::SeqCst);
 
             let finalize_result = finalize_execution_result_generic(
                 &intent,
@@ -2565,7 +2640,12 @@ mod tests {
             .await;
 
             assert!(finalize_result.is_err());
-            assert_eq!(mock_store.store_result_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+            assert_eq!(
+                mock_store
+                    .store_result_calls
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                1
+            );
         }
 
         #[tokio::test]
@@ -2647,14 +2727,10 @@ mod tests {
             let intent = create_test_intent("intent-1");
 
             // Step 1: Check idempotency (not processed)
-            let is_duplicate = handle_idempotency_generic(
-                &intent,
-                &mock_store,
-                &mock_publisher,
-                "trace-1",
-            )
-            .await
-            .unwrap();
+            let is_duplicate =
+                handle_idempotency_generic(&intent, &mock_store, &mock_publisher, "trace-1")
+                    .await
+                    .unwrap();
 
             assert!(!is_duplicate);
 
@@ -2671,14 +2747,10 @@ mod tests {
             .unwrap();
 
             // Step 3: Try again - should be idempotent
-            let is_duplicate = handle_idempotency_generic(
-                &intent,
-                &mock_store,
-                &mock_publisher,
-                "trace-2",
-            )
-            .await
-            .unwrap();
+            let is_duplicate =
+                handle_idempotency_generic(&intent, &mock_store, &mock_publisher, "trace-2")
+                    .await
+                    .unwrap();
 
             assert!(is_duplicate);
             assert_eq!(mock_publisher.call_count(), 2); // Once for finalize, once for idempotent return
@@ -2717,8 +2789,18 @@ mod tests {
             }
 
             assert_eq!(mock_publisher.call_count(), 5);
-            assert_eq!(mock_store.mark_processing_calls.load(std::sync::atomic::Ordering::SeqCst), 5);
-            assert_eq!(mock_store.store_result_calls.load(std::sync::atomic::Ordering::SeqCst), 5);
+            assert_eq!(
+                mock_store
+                    .mark_processing_calls
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                5
+            );
+            assert_eq!(
+                mock_store
+                    .store_result_calls
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                5
+            );
         }
     }
 }

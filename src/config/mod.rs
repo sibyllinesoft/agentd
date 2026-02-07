@@ -116,13 +116,26 @@ pub fn load_config(path: &Path) -> Result<Config> {
         Err(primary_err) => match load_executor_only_config(path) {
             Ok(cfg) => Ok(cfg),
             Err(executor_err) => {
-                eprintln!("⚠️  Falling back to testing config: {primary_err}");
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "⚠️  Additional executor config error while parsing {}: {executor_err:?}",
-                    path.display()
-                );
-                Ok(build_testing_fallback_config())
+                if insecure_fallback_enabled() {
+                    eprintln!(
+                        "⚠️  Falling back to insecure testing config because \
+SMITH_EXECUTOR_ALLOW_INSECURE_FALLBACK=1"
+                    );
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "⚠️  Config parse errors for {}: primary={primary_err:?}, executor={executor_err:?}",
+                        path.display()
+                    );
+                    Ok(build_testing_fallback_config())
+                } else {
+                    Err(anyhow::anyhow!(
+                        "Failed to load config from {}: primary parser error: {}; executor parser error: {}. \
+Set SMITH_EXECUTOR_ALLOW_INSECURE_FALLBACK=1 only for local development.",
+                        path.display(),
+                        primary_err,
+                        executor_err
+                    ))
+                }
             }
         },
     }
@@ -232,10 +245,20 @@ fn build_testing_fallback_config() -> Config {
     cfg
 }
 
+fn insecure_fallback_enabled() -> bool {
+    std::env::var("SMITH_EXECUTOR_ALLOW_INSECURE_FALLBACK")
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use once_cell::sync::Lazy;
+    use std::sync::Mutex;
     use tempfile::NamedTempFile;
+
+    static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     #[test]
     fn parse_helpers_delegate_to_shared_config() {
@@ -306,6 +329,13 @@ mod tests {
     #[test]
     fn load_repo_executor_only_config() {
         let path = Path::new("../infra/config/smith-executor.toml");
+        if !path.exists() {
+            eprintln!(
+                "Skipping load_repo_executor_only_config: {} does not exist",
+                path.display()
+            );
+            return;
+        }
         let config = load_config(path).expect("executor config should load");
         assert_eq!(config.executor.node_name, "exec-01");
         assert!(!config.executor.intent_streams.is_empty());
@@ -314,7 +344,10 @@ mod tests {
     #[test]
     fn test_unified_config_from_agentd() {
         let agentd = AgentdConfig::workstation();
-        assert_eq!(agentd.isolation.default_backend, IsolationBackendType::HostDirect);
+        assert_eq!(
+            agentd.isolation.default_backend,
+            IsolationBackendType::HostDirect
+        );
     }
 
     // ==================== UnifiedConfig Tests ====================
@@ -412,7 +445,10 @@ mod tests {
         let mut legacy_config = Config::testing();
         legacy_config.executor.nats_config.servers = vec!["nats://localhost:4222".to_string()];
         let unified = UnifiedConfig::Legacy(legacy_config);
-        assert_eq!(unified.nats_url(), Some("nats://localhost:4222".to_string()));
+        assert_eq!(
+            unified.nats_url(),
+            Some("nats://localhost:4222".to_string())
+        );
     }
 
     #[test]
@@ -472,9 +508,18 @@ mod tests {
     fn test_build_testing_fallback_config() {
         let config = build_testing_fallback_config();
         // Check default paths
-        assert_eq!(config.executor.work_root, PathBuf::from("/tmp/smith-executor/work"));
-        assert_eq!(config.executor.state_dir, PathBuf::from("/tmp/smith-executor/state"));
-        assert_eq!(config.executor.audit_dir, PathBuf::from("/tmp/smith-executor/audit"));
+        assert_eq!(
+            config.executor.work_root,
+            PathBuf::from("/tmp/smith-executor/work")
+        );
+        assert_eq!(
+            config.executor.state_dir,
+            PathBuf::from("/tmp/smith-executor/state")
+        );
+        assert_eq!(
+            config.executor.audit_dir,
+            PathBuf::from("/tmp/smith-executor/audit")
+        );
         // Check enforcement is disabled for testing
         assert!(!config.executor.capabilities.enforcement_enabled);
         // Check intent streams are populated
@@ -487,7 +532,10 @@ mod tests {
         std::env::set_var("SMITH_NATS_URL", "nats://custom:4222");
         let config = build_testing_fallback_config();
         assert_eq!(config.nats.url, "nats://custom:4222");
-        assert_eq!(config.executor.nats_config.servers, vec!["nats://custom:4222".to_string()]);
+        assert_eq!(
+            config.executor.nats_config.servers,
+            vec!["nats://custom:4222".to_string()]
+        );
         std::env::remove_var("SMITH_NATS_URL");
     }
 
@@ -498,5 +546,36 @@ mod tests {
         assert_eq!(config.executor.nats_config.jetstream_domain, "hub");
         assert_eq!(config.nats.jetstream_domain, "hub");
         std::env::remove_var("SMITH_JETSTREAM_DOMAIN");
+    }
+
+    #[test]
+    fn test_load_config_rejects_invalid_config_without_insecure_fallback() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("SMITH_EXECUTOR_ALLOW_INSECURE_FALLBACK");
+        let mut file = NamedTempFile::new().unwrap();
+        use std::io::Write;
+        writeln!(file, "this is not valid toml").unwrap();
+
+        let result = load_config(file.path());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Failed to load config"));
+        assert!(err.contains("SMITH_EXECUTOR_ALLOW_INSECURE_FALLBACK=1"));
+    }
+
+    #[test]
+    fn test_load_config_allows_invalid_config_with_insecure_fallback_enabled() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("SMITH_EXECUTOR_ALLOW_INSECURE_FALLBACK", "1");
+        let mut file = NamedTempFile::new().unwrap();
+        use std::io::Write;
+        writeln!(file, "this is not valid toml").unwrap();
+
+        let result = load_config(file.path());
+        std::env::remove_var("SMITH_EXECUTOR_ALLOW_INSECURE_FALLBACK");
+
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert!(!config.executor.capabilities.enforcement_enabled);
     }
 }
