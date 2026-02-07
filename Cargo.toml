@@ -115,6 +115,10 @@ nursery = { level = "warn", priority = -1 }
 name = "agentd"
 path = "src/main.rs"
 
+[[bin]]
+name = "fc-guest-agent"
+path = "src/bin/fc-guest-agent.rs"
+
 [dependencies]
 # Async runtime
 tokio = { workspace = true, features = ["full"] }

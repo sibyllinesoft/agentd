@@ -26,6 +26,9 @@ pub enum ExecutorCommand {
         /// Required capability digest (hex64) for bundle enforcement
         #[arg(long, required = true)]
         capability_digest: String,
+        /// Isolation backend to use (landlock, container, host)
+        #[arg(long, default_value = "landlock")]
+        isolation: String,
     },
     /// Check configuration and system compatibility
     CheckConfig {

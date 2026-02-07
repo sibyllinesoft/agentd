@@ -12,25 +12,25 @@ use tracing::{debug, info, warn};
 const LANDLOCK_ABI_VERSION: u32 = 2;
 
 /// Landlock access rights for filesystem operations
+/// Values must match linux/landlock.h
 #[repr(u64)]
 #[derive(Debug, Clone, Copy)]
 pub enum LandlockAccess {
-    FsExecute = 1,
-    FsWriteFile = 2,
-    FsReadFile = 4,
-    FsReadDir = 8,
-    FsMakeChar = 16,
-    FsMakeDir = 32,
-    FsMakeReg = 64,
-    FsMakeSock = 128,
-    FsMakeFifo = 256,
-    FsMakeBlock = 512,
-    FsMakeSymlink = 1024,
-    FsRemoveDir = 2048,
-    FsRemoveFile = 4096,
-    FsMakeSymlink2 = 8192,
-    FsRefer = 16384,
-    FsTruncate = 32768,
+    FsExecute = 1 << 0,      // 1
+    FsWriteFile = 1 << 1,    // 2
+    FsReadFile = 1 << 2,     // 4
+    FsReadDir = 1 << 3,      // 8
+    FsRemoveDir = 1 << 4,    // 16
+    FsRemoveFile = 1 << 5,   // 32
+    FsMakeChar = 1 << 6,     // 64
+    FsMakeDir = 1 << 7,      // 128
+    FsMakeReg = 1 << 8,      // 256
+    FsMakeSock = 1 << 9,     // 512
+    FsMakeFifo = 1 << 10,    // 1024
+    FsMakeBlock = 1 << 11,   // 2048
+    FsMakeSymlink = 1 << 12, // 4096
+    FsRefer = 1 << 13,       // 8192 (ABI v2)
+    FsTruncate = 1 << 14,    // 16384 (ABI v3)
 }
 
 /// Landlock filesystem rule configuration
@@ -41,35 +41,62 @@ pub struct LandlockRule {
 }
 
 impl LandlockRule {
-    /// Create rule allowing only read access
+    /// Create rule allowing only read access (auto-detects file vs directory)
     pub fn read_only(path: &str) -> Self {
+        let is_dir = Path::new(path).is_dir();
+        let access_rights = if is_dir {
+            // Directories need FsReadDir to list contents
+            LandlockAccess::FsReadFile as u64 | LandlockAccess::FsReadDir as u64
+        } else {
+            // Files only need FsReadFile
+            LandlockAccess::FsReadFile as u64
+        };
         Self {
             path: path.to_string(),
-            access_rights: LandlockAccess::FsReadFile as u64 | LandlockAccess::FsReadDir as u64,
+            access_rights,
         }
     }
 
-    /// Create rule allowing read and write access
+    /// Create rule allowing read and write access (auto-detects file vs directory)
     pub fn read_write(path: &str) -> Self {
-        Self {
-            path: path.to_string(),
-            access_rights: LandlockAccess::FsReadFile as u64
+        let is_dir = Path::new(path).is_dir();
+        let access_rights = if is_dir {
+            // Directories need directory-specific rights
+            LandlockAccess::FsReadFile as u64
                 | LandlockAccess::FsReadDir as u64
                 | LandlockAccess::FsWriteFile as u64
                 | LandlockAccess::FsMakeReg as u64
                 | LandlockAccess::FsMakeDir as u64
                 | LandlockAccess::FsRemoveFile as u64
-                | LandlockAccess::FsRemoveDir as u64,
+                | LandlockAccess::FsRemoveDir as u64
+                | LandlockAccess::FsTruncate as u64
+        } else {
+            // Files only need file-specific rights
+            LandlockAccess::FsReadFile as u64
+                | LandlockAccess::FsWriteFile as u64
+                | LandlockAccess::FsTruncate as u64
+        };
+        Self {
+            path: path.to_string(),
+            access_rights,
         }
     }
 
-    /// Create rule allowing execution access
+    /// Create rule allowing execution access (auto-detects file vs directory)
     pub fn execute(path: &str) -> Self {
+        let is_dir = Path::new(path).is_dir();
+        let access_rights = if is_dir {
+            // Directories need FsReadDir to traverse, FsExecute for binaries within
+            LandlockAccess::FsExecute as u64
+                | LandlockAccess::FsReadFile as u64
+                | LandlockAccess::FsReadDir as u64
+        } else {
+            // Files need FsExecute and FsReadFile (to load the binary)
+            LandlockAccess::FsExecute as u64 | LandlockAccess::FsReadFile as u64
+        };
         Self {
             path: path.to_string(),
-            access_rights: LandlockAccess::FsExecute as u64
-                | LandlockAccess::FsReadFile as u64
-                | LandlockAccess::FsReadDir as u64,
+            access_rights,
         }
     }
 }
@@ -304,6 +331,17 @@ fn add_landlock_rule(ruleset: &LandlockRuleset, rule: &LandlockRule) -> Result<(
 /// Apply the ruleset to the current process
 fn restrict_self_with_ruleset(ruleset: &LandlockRuleset) -> Result<()> {
     debug!("Restricting process with Landlock ruleset");
+
+    // Landlock requires NO_NEW_PRIVS to be set before restricting
+    // This prevents the process from gaining new privileges after being sandboxed
+    let nnp_result = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
+    if nnp_result != 0 {
+        return Err(anyhow::anyhow!(
+            "Failed to set NO_NEW_PRIVS: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    debug!("Set NO_NEW_PRIVS for Landlock");
 
     let result = unsafe {
         libc::syscall(

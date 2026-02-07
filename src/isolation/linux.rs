@@ -10,7 +10,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,11 +19,11 @@ use tokio::process::Command as TokioCommand;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use crate::core::intent::Command;
 use crate::core::isolation::{
     BackendCapabilities, BackendHealth, ExecContext, ExecOutput, IsolationBackend, ResourceLimits,
     ResourceUsage, Sandbox, SandboxCapabilities, SandboxSpec, StreamOutput,
 };
-use crate::core::intent::Command;
 use crate::core::sandbox::SandboxId;
 
 /// Linux native isolation backend using smith-jailer
@@ -266,6 +266,68 @@ pub struct LinuxSandbox {
     created_at: std::time::Instant,
 }
 
+impl LinuxSandbox {
+    fn resolve_execution_workdir(&self, requested_workdir: Option<&PathBuf>) -> Result<PathBuf> {
+        let sandbox_root = self
+            .workdir
+            .canonicalize()
+            .unwrap_or_else(|_| self.workdir.clone());
+
+        let Some(requested) = requested_workdir else {
+            return Ok(sandbox_root);
+        };
+
+        if requested.is_absolute() {
+            anyhow::bail!(
+                "Absolute workdir paths are not allowed in linux-native sandbox: {}",
+                requested.display()
+            );
+        }
+
+        for component in requested.components() {
+            if matches!(component, Component::ParentDir | Component::RootDir) {
+                anyhow::bail!(
+                    "Invalid workdir component '{}' in {}",
+                    component.as_os_str().to_string_lossy(),
+                    requested.display()
+                );
+            }
+            #[cfg(windows)]
+            if matches!(component, Component::Prefix(_)) {
+                anyhow::bail!(
+                    "Invalid workdir component '{}' in {}",
+                    component.as_os_str().to_string_lossy(),
+                    requested.display()
+                );
+            }
+        }
+
+        let candidate = sandbox_root.join(requested);
+        let resolved = candidate.canonicalize().with_context(|| {
+            format!(
+                "Requested workdir does not exist or cannot be resolved: {}",
+                candidate.display()
+            )
+        })?;
+
+        if !resolved.starts_with(&sandbox_root) {
+            anyhow::bail!(
+                "Requested workdir escapes sandbox root: {}",
+                requested.display()
+            );
+        }
+
+        if !resolved.is_dir() {
+            anyhow::bail!(
+                "Requested workdir is not a directory: {}",
+                resolved.display()
+            );
+        }
+
+        Ok(resolved)
+    }
+}
+
 #[async_trait]
 impl Sandbox for LinuxSandbox {
     fn id(&self) -> &SandboxId {
@@ -281,9 +343,7 @@ impl Sandbox for LinuxSandbox {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamOutput>(100);
 
         // Spawn a task to drain the channel (we don't need the streaming output)
-        tokio::spawn(async move {
-            while rx.recv().await.is_some() {}
-        });
+        tokio::spawn(async move { while rx.recv().await.is_some() {} });
 
         self.exec_streaming(cmd, ctx, tx).await
     }
@@ -296,12 +356,9 @@ impl Sandbox for LinuxSandbox {
     ) -> Result<ExecOutput> {
         let start = std::time::Instant::now();
 
-        // Determine working directory
-        let workdir = ctx
-            .workdir
-            .clone()
-            .map(|p| self.workdir.join(p))
-            .unwrap_or_else(|| self.workdir.clone());
+        // Determine and validate working directory (must remain under sandbox root).
+        let workdir =
+            self.resolve_execution_workdir(ctx.workdir.as_ref().or(cmd.workdir.as_ref()))?;
 
         // Build environment
         let mut env: HashMap<String, String> = HashMap::new();
@@ -313,8 +370,14 @@ impl Sandbox for LinuxSandbox {
 
         // Set sandbox-specific env vars
         env.insert("SANDBOX_ID".to_string(), self.id.as_str().to_string());
-        env.insert("SANDBOX_WORKDIR".to_string(), workdir.to_string_lossy().to_string());
-        env.insert("TMPDIR".to_string(), self.workdir.join("tmp").to_string_lossy().to_string());
+        env.insert(
+            "SANDBOX_WORKDIR".to_string(),
+            workdir.to_string_lossy().to_string(),
+        );
+        env.insert(
+            "TMPDIR".to_string(),
+            self.workdir.join("tmp").to_string_lossy().to_string(),
+        );
 
         // Build command
         let mut process = TokioCommand::new(&cmd.program);
@@ -330,8 +393,115 @@ impl Sandbox for LinuxSandbox {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        // Apply Landlock filesystem restrictions if available
+        if self.landlock_enabled {
+            use smith_jailer::landlock::{apply_landlock_rules, LandlockConfig, LandlockRule};
+            use std::collections::HashMap;
+            use std::os::unix::process::CommandExt;
+
+            // Track paths with their combined access rights
+            // We merge permissions for the same path to avoid conflicts
+            let mut path_permissions: HashMap<String, (bool, bool)> = HashMap::new(); // (rw, exec)
+
+            // Helper to collect path permissions
+            let mut collect_path = |perms: &mut HashMap<String, (bool, bool)>,
+                                    path_str: &str,
+                                    rw: bool,
+                                    exec: bool| {
+                let p = std::path::Path::new(path_str);
+                // Try to canonicalize to resolve symlinks
+                let canonical = match p.canonicalize() {
+                    Ok(c) => c,
+                    Err(_) => return, // Path doesn't exist
+                };
+
+                if let Ok(metadata) = canonical.metadata() {
+                    // Only add rules for regular files and directories
+                    if metadata.is_dir() || metadata.is_file() {
+                        let path_s = canonical.to_string_lossy().to_string();
+                        let entry = perms.entry(path_s).or_insert((false, false));
+                        // Merge permissions - if any request is rw or exec, enable it
+                        entry.0 = entry.0 || rw;
+                        entry.1 = entry.1 || exec;
+                    }
+                }
+            };
+
+            // Collect read-only paths from spec
+            for path in &self.spec.allowed_paths_ro {
+                collect_path(&mut path_permissions, &path.to_string_lossy(), false, false);
+            }
+
+            // Collect read-write paths from spec
+            for path in &self.spec.allowed_paths_rw {
+                collect_path(&mut path_permissions, &path.to_string_lossy(), true, false);
+            }
+
+            // Always allow access to sandbox workdir
+            collect_path(
+                &mut path_permissions,
+                &self.workdir.to_string_lossy(),
+                true,
+                false,
+            );
+
+            // Essential system paths for command execution
+            collect_path(&mut path_permissions, "/usr/bin", false, true);
+            collect_path(&mut path_permissions, "/usr/local/bin", false, true);
+            collect_path(&mut path_permissions, "/usr/sbin", false, true);
+            // /usr/lib needs execute for the dynamic linker (ld-linux-x86-64.so.2)
+            collect_path(&mut path_permissions, "/usr/lib", false, true);
+            collect_path(&mut path_permissions, "/etc/ld.so.cache", false, false);
+            collect_path(&mut path_permissions, "/etc/ld.so.conf", false, false);
+            collect_path(&mut path_permissions, "/etc/ld.so.conf.d", false, false);
+            // Only allow write access to sandbox's tmp dir, not all of /tmp
+            collect_path(
+                &mut path_permissions,
+                &self.workdir.join("tmp").to_string_lossy(),
+                true,
+                false,
+            );
+
+            // Build Landlock config from collected paths (with merged permissions)
+            let mut landlock_config = LandlockConfig::default();
+            for (path, (rw, exec)) in &path_permissions {
+                debug!("Adding Landlock rule: {} (rw={}, exec={})", path, rw, exec);
+                if *exec {
+                    landlock_config.allow_execute(path);
+                } else if *rw {
+                    landlock_config.allow_read_write(path);
+                } else {
+                    landlock_config.allow_read(path);
+                }
+            }
+
+            // Log the total number of rules
+            debug!(sandbox_id = %self.id, rules_count = landlock_config.rules.len(), "Landlock config built");
+
+            // Apply Landlock in pre_exec (runs in child after fork, before exec)
+            unsafe {
+                process.pre_exec(move || {
+                    apply_landlock_rules(&landlock_config)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::PermissionDenied, e))
+                });
+            }
+
+            debug!(sandbox_id = %self.id, "Landlock pre_exec hook configured");
+        }
+
         // Spawn process
-        let mut child = process.spawn().context("Failed to spawn command")?;
+        let mut child = match process.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    sandbox_id = %self.id,
+                    error = %e,
+                    program = %cmd.program,
+                    "Failed to spawn command"
+                );
+                return Err(anyhow::anyhow!("Failed to spawn command: {}", e));
+            }
+        };
 
         // Write stdin if provided
         if let Some(stdin_data) = &cmd.stdin {
@@ -478,5 +648,93 @@ impl Sandbox for LinuxSandbox {
             bytes_written: 0,
             bytes_read: 0,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn create_test_sandbox(workdir: PathBuf) -> LinuxSandbox {
+        LinuxSandbox {
+            id: SandboxId::new(),
+            workdir,
+            spec: SandboxSpec::default(),
+            capabilities: SandboxCapabilities {
+                sandbox_id: "test".to_string(),
+                backend: "linux-native".to_string(),
+                profile: "default".to_string(),
+                can_write_filesystem: true,
+                readable_paths: vec![],
+                writable_paths: vec![],
+                has_network: false,
+                allowed_destinations: vec![],
+                limits: ResourceLimits::default(),
+                syscall_filter_active: true,
+                blocked_syscall_categories: vec![],
+                is_persistent: false,
+                created_at: chrono::Utc::now(),
+                time_remaining_ms: Some(60_000),
+            },
+            landlock_enabled: false,
+            created_at: std::time::Instant::now(),
+        }
+    }
+
+    #[test]
+    fn test_resolve_execution_workdir_allows_relative_child() {
+        let temp = TempDir::new().unwrap();
+        let child = temp.path().join("child");
+        std::fs::create_dir_all(&child).unwrap();
+        let sandbox = create_test_sandbox(temp.path().to_path_buf());
+
+        let requested = PathBuf::from("child");
+        let resolved = sandbox.resolve_execution_workdir(Some(&requested)).unwrap();
+        assert!(resolved.ends_with("child"));
+    }
+
+    #[test]
+    fn test_resolve_execution_workdir_rejects_absolute_path() {
+        let temp = TempDir::new().unwrap();
+        let sandbox = create_test_sandbox(temp.path().to_path_buf());
+        let requested = PathBuf::from("/tmp");
+        let result = sandbox.resolve_execution_workdir(Some(&requested));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Absolute workdir paths are not allowed"));
+    }
+
+    #[test]
+    fn test_resolve_execution_workdir_rejects_parent_traversal() {
+        let temp = TempDir::new().unwrap();
+        let sandbox = create_test_sandbox(temp.path().to_path_buf());
+        let requested = PathBuf::from("../escape");
+        let result = sandbox.resolve_execution_workdir(Some(&requested));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid workdir component"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_resolve_execution_workdir_rejects_symlink_escape() {
+        let temp = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let link = temp.path().join("link_out");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+
+        let sandbox = create_test_sandbox(temp.path().to_path_buf());
+        let requested = PathBuf::from("link_out");
+        let result = sandbox.resolve_execution_workdir(Some(&requested));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("escapes sandbox root"));
     }
 }

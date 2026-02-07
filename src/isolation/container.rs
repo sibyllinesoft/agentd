@@ -29,11 +29,11 @@ use tokio::process::Command as TokioCommand;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
+use crate::core::intent::Command;
 use crate::core::isolation::{
     BackendCapabilities, BackendHealth, ExecContext, ExecOutput, IsolationBackend, ResourceLimits,
     ResourceUsage, Sandbox, SandboxCapabilities, SandboxSpec, StreamOutput,
 };
-use crate::core::intent::Command;
 use crate::core::sandbox::SandboxId;
 
 /// Mount specification for exposing host paths in container
@@ -90,7 +90,9 @@ impl ContainerBackend {
     fn check_userns_available() -> bool {
         // Check unprivileged user namespace support
         if Path::new("/proc/sys/kernel/unprivileged_userns_clone").exists() {
-            if let Ok(content) = std::fs::read_to_string("/proc/sys/kernel/unprivileged_userns_clone") {
+            if let Ok(content) =
+                std::fs::read_to_string("/proc/sys/kernel/unprivileged_userns_clone")
+            {
                 return content.trim() == "1";
             }
         }
@@ -112,7 +114,19 @@ impl ContainerBackend {
         tokio::fs::create_dir_all(&rootfs).await?;
 
         // Create essential directories
-        for dir in &["bin", "dev", "etc", "lib", "lib64", "proc", "sys", "tmp", "usr", "var", "workspace"] {
+        for dir in &[
+            "bin",
+            "dev",
+            "etc",
+            "lib",
+            "lib64",
+            "proc",
+            "sys",
+            "tmp",
+            "usr",
+            "var",
+            "workspace",
+        ] {
             tokio::fs::create_dir_all(rootfs.join(dir)).await?;
         }
 
@@ -158,7 +172,14 @@ impl ContainerBackend {
         });
 
         // Bind mount essential host directories (read-only)
-        for host_dir in &["/usr/bin", "/usr/lib", "/usr/lib64", "/lib", "/lib64", "/bin"] {
+        for host_dir in &[
+            "/usr/bin",
+            "/usr/lib",
+            "/usr/lib64",
+            "/lib",
+            "/lib64",
+            "/bin",
+        ] {
             if Path::new(host_dir).exists() {
                 let target = if host_dir.starts_with("/usr/") {
                     rootfs.join(&host_dir[1..])
@@ -177,7 +198,10 @@ impl ContainerBackend {
         // User-specified read-only paths
         for path in &spec.allowed_paths_ro {
             // Map to /mnt/host/<path> inside container
-            let target = rootfs.join("mnt").join("host").join(path.strip_prefix("/").unwrap_or(path));
+            let target = rootfs
+                .join("mnt")
+                .join("host")
+                .join(path.strip_prefix("/").unwrap_or(path));
             mounts.push(MountSpec {
                 source: path.clone(),
                 target,
@@ -188,11 +212,36 @@ impl ContainerBackend {
 
         // User-specified read-write paths
         for path in &spec.allowed_paths_rw {
-            let target = rootfs.join("mnt").join("host").join(path.strip_prefix("/").unwrap_or(path));
+            let target = rootfs
+                .join("mnt")
+                .join("host")
+                .join(path.strip_prefix("/").unwrap_or(path));
             mounts.push(MountSpec {
                 source: path.clone(),
                 target,
                 read_only: false,
+                mount_type: MountType::Bind,
+            });
+        }
+
+        // Custom bind mounts with explicit target paths
+        for bind_mount in &spec.bind_mounts {
+            // For custom bind mounts, use the exact target path specified
+            // (relative to rootfs)
+            let target = if bind_mount.target.is_absolute() {
+                rootfs.join(
+                    bind_mount
+                        .target
+                        .strip_prefix("/")
+                        .unwrap_or(&bind_mount.target),
+                )
+            } else {
+                rootfs.join(&bind_mount.target)
+            };
+            mounts.push(MountSpec {
+                source: bind_mount.source.clone(),
+                target,
+                read_only: bind_mount.readonly,
                 mount_type: MountType::Bind,
             });
         }
@@ -378,70 +427,188 @@ pub struct ContainerSandbox {
 }
 
 impl ContainerSandbox {
-    /// Execute a command inside the container namespace
+    /// Execute a command inside the container namespace using bubblewrap
     async fn exec_in_namespace(&self, cmd: &Command, ctx: &ExecContext) -> Result<ExecOutput> {
         let start = std::time::Instant::now();
 
-        // Build the namespace executor command
-        // We use unshare to create new namespaces and chroot into rootfs
-        let mut unshare_cmd = TokioCommand::new("unshare");
+        // Build the bubblewrap command
+        // bwrap handles namespace creation and bind mounts properly
+        let mut bwrap_cmd = TokioCommand::new("bwrap");
 
-        // Namespace flags
-        unshare_cmd
-            .arg("--mount")      // New mount namespace
-            .arg("--pid")        // New PID namespace
-            .arg("--fork")       // Fork before exec (required for PID namespace)
-            .arg("--mount-proc") // Mount /proc in new namespace
-            .arg("--root")       // Change root
-            .arg(&self.rootfs);
+        // Create new namespaces
+        bwrap_cmd
+            .arg("--unshare-pid") // New PID namespace
+            .arg("--unshare-uts") // New UTS namespace
+            .arg("--unshare-ipc"); // New IPC namespace
 
-        // Add user namespace if available (for unprivileged operation)
+        // User namespace for unprivileged operation
         let is_root = unsafe { libc::geteuid() == 0 };
-        if ContainerBackend::check_userns_available() && !is_root {
-            unshare_cmd
-                .arg("--user")
-                .arg("--map-root-user");
+        if !is_root {
+            bwrap_cmd.arg("--unshare-user");
         }
 
-        // Working directory inside container
-        let workdir = ctx.workdir
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("/workspace"));
+        // Network namespace (if network is disabled)
+        if !self.spec.network_enabled {
+            bwrap_cmd.arg("--unshare-net");
+        }
 
-        unshare_cmd
-            .arg("--wd")
-            .arg(&workdir);
+        // Build a restrictive filesystem where:
+        // - System paths are read-only
+        // - Only explicitly allowed paths are writable
+        // - Paths outside allowed areas either don't exist or are read-only
+        //
+        // Strategy: Use --ro-bind for system paths, --bind for allowed rw paths,
+        // and implicitly block everything else by not mounting it
+
+        bwrap_cmd
+            .arg("--proc")
+            .arg("/proc") // Mount /proc
+            .arg("--dev")
+            .arg("/dev") // Mount /dev
+            .arg("--tmpfs")
+            .arg("/tmp"); // Writable /tmp (for shell)
+
+        // Bind mount essential system directories (read-only)
+        for host_dir in &["/usr", "/lib", "/lib64", "/bin", "/etc"] {
+            if Path::new(host_dir).exists() {
+                bwrap_cmd.arg("--ro-bind").arg(host_dir).arg(host_dir);
+            }
+        }
+
+        // Bind mount user-specified read-only paths
+        for path in &self.spec.allowed_paths_ro {
+            if path.exists() {
+                bwrap_cmd.arg("--ro-bind").arg(path).arg(path);
+            }
+        }
+
+        // For read-write paths, we need to:
+        // 1. Bind mount parent directories as read-only (to make the path accessible
+        //    but prevent writes to parent dirs)
+        // 2. Then overlay the actual rw path with a writable bind mount
+
+        // Collect all parent directories that need to exist for rw paths
+        let mut parent_dirs: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        for path in &self.spec.allowed_paths_rw {
+            let mut current = path.clone();
+            while let Some(parent) = current.parent() {
+                if parent.as_os_str().is_empty() || parent == Path::new("/") {
+                    break;
+                }
+                parent_dirs.insert(parent.to_path_buf());
+                current = parent.to_path_buf();
+            }
+        }
+
+        // Sort parent dirs by depth (shortest first) and bind mount them as read-only
+        // This creates the directory structure and makes writes to parent dirs fail
+        let mut sorted_parents: Vec<_> = parent_dirs.into_iter().collect();
+        sorted_parents.sort_by_key(|p| p.components().count());
+
+        for parent in &sorted_parents {
+            // Skip if this is also an allowed rw path (will be mounted writable below)
+            if self.spec.allowed_paths_rw.contains(parent) {
+                continue;
+            }
+            // Bind mount parent as read-only from host
+            // This allows child mounts but makes writes here fail with EROFS
+            if parent.exists() {
+                bwrap_cmd.arg("--ro-bind").arg(parent).arg(parent);
+            }
+        }
+
+        // Now bind mount the actual read-write paths (these overlay the ro-bind parents)
+        for path in &self.spec.allowed_paths_rw {
+            if path.exists() {
+                bwrap_cmd.arg("--bind").arg(path).arg(path);
+            }
+        }
+
+        // Custom bind mounts with explicit source->target mapping
+        for bind_mount in &self.spec.bind_mounts {
+            if bind_mount.source.exists() {
+                // Ensure parent directories of target exist in the namespace
+                // by creating them with tmpfs if needed
+                if let Some(parent) = bind_mount.target.parent() {
+                    if !parent.as_os_str().is_empty() && parent != Path::new("/") {
+                        // Create parent dir structure with tmpfs
+                        bwrap_cmd.arg("--dir").arg(parent);
+                    }
+                }
+
+                if bind_mount.readonly {
+                    bwrap_cmd
+                        .arg("--ro-bind")
+                        .arg(&bind_mount.source)
+                        .arg(&bind_mount.target);
+                } else {
+                    bwrap_cmd
+                        .arg("--bind")
+                        .arg(&bind_mount.source)
+                        .arg(&bind_mount.target);
+                }
+            }
+        }
+
+        // Working directory
+        let workdir = ctx
+            .workdir
+            .clone()
+            .or_else(|| cmd.workdir.clone())
+            .unwrap_or_else(|| self.spec.workdir.clone());
+
+        // Ensure workdir exists in namespace (use first rw path as fallback)
+        if let Some(first_rw) = self.spec.allowed_paths_rw.first() {
+            if workdir.starts_with(first_rw) {
+                bwrap_cmd.arg("--chdir").arg(&workdir);
+            } else {
+                bwrap_cmd.arg("--chdir").arg(first_rw);
+            }
+        } else {
+            bwrap_cmd.arg("--chdir").arg("/tmp");
+        }
+
+        // Die with parent
+        bwrap_cmd.arg("--die-with-parent");
 
         // The actual command to run
-        unshare_cmd
-            .arg("--")
-            .arg(&cmd.program)
-            .args(&cmd.args);
+        bwrap_cmd.arg("--").arg(&cmd.program).args(&cmd.args);
 
         // Environment
         let mut env: HashMap<String, String> = HashMap::new();
         if cmd.inherit_env {
             // Only inherit safe environment variables
             for (key, value) in std::env::vars() {
-                if key.starts_with("LANG") || key.starts_with("LC_") || key == "PATH" || key == "TERM" {
+                if key.starts_with("LANG")
+                    || key.starts_with("LC_")
+                    || key == "PATH"
+                    || key == "TERM"
+                {
                     env.insert(key, value);
                 }
             }
         }
         env.extend(cmd.env.clone());
         env.extend(ctx.extra_env.iter().cloned());
-        env.insert("HOME".to_string(), "/workspace".to_string());
+        env.insert("HOME".to_string(), workdir.to_string_lossy().to_string());
         env.insert("SANDBOX_ID".to_string(), self.id.as_str().to_string());
         env.insert("TMPDIR".to_string(), "/tmp".to_string());
 
-        unshare_cmd
+        bwrap_cmd
             .envs(env)
-            .stdin(if cmd.stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdin(if cmd.stdin.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        debug!(sandbox_id = %self.id, "Spawning bwrap with {} ro-bind, {} bind mounts",
+               self.spec.allowed_paths_ro.len(), self.spec.allowed_paths_rw.len());
+
         // Spawn process
-        let mut child = unshare_cmd.spawn().context("Failed to spawn unshare")?;
+        let mut child = bwrap_cmd.spawn().context("Failed to spawn bwrap")?;
 
         // Write stdin if provided
         if let Some(stdin_data) = &cmd.stdin {
@@ -452,7 +619,8 @@ impl ContainerSandbox {
         }
 
         // Timeout
-        let timeout = ctx.timeout
+        let timeout = ctx
+            .timeout
             .or(cmd.timeout)
             .or(self.spec.limits.max_wall_time_ms.map(Duration::from_millis))
             .unwrap_or(Duration::from_secs(60));
@@ -483,22 +651,21 @@ impl ContainerSandbox {
             let stdout_data = stdout_handle.await.unwrap_or_default();
             let stderr_data = stderr_handle.await.unwrap_or_default();
             Ok::<_, anyhow::Error>((status, stdout_data, stderr_data))
-        }).await;
+        })
+        .await;
 
         let duration = start.elapsed();
 
         match result {
-            Ok(Ok((status, stdout_data, stderr_data))) => {
-                Ok(ExecOutput {
-                    exit_code: status.code().unwrap_or(-1),
-                    stdout: stdout_data,
-                    stderr: stderr_data,
-                    duration,
-                    timed_out: false,
-                    resource_limited: false,
-                    resource_usage: None,
-                })
-            }
+            Ok(Ok((status, stdout_data, stderr_data))) => Ok(ExecOutput {
+                exit_code: status.code().unwrap_or(-1),
+                stdout: stdout_data,
+                stderr: stderr_data,
+                duration,
+                timed_out: false,
+                resource_limited: false,
+                resource_usage: None,
+            }),
             Ok(Err(e)) => Err(e),
             Err(_) => {
                 // Timeout
@@ -542,12 +709,20 @@ impl Sandbox for ContainerSandbox {
         let result = self.exec(cmd, ctx).await?;
 
         if !result.stdout.is_empty() {
-            let _ = output_tx.send(StreamOutput::Stdout(result.stdout.clone())).await;
+            let _ = output_tx
+                .send(StreamOutput::Stdout(result.stdout.clone()))
+                .await;
         }
         if !result.stderr.is_empty() {
-            let _ = output_tx.send(StreamOutput::Stderr(result.stderr.clone())).await;
+            let _ = output_tx
+                .send(StreamOutput::Stderr(result.stderr.clone()))
+                .await;
         }
-        let _ = output_tx.send(StreamOutput::Exit { code: result.exit_code }).await;
+        let _ = output_tx
+            .send(StreamOutput::Exit {
+                code: result.exit_code,
+            })
+            .await;
 
         Ok(result)
     }

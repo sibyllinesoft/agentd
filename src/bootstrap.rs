@@ -109,9 +109,10 @@ pub async fn run() -> Result<()> {
             demo,
             autobootstrap,
             capability_digest,
+            isolation,
         } => {
             info!("Starting executor daemon with config: {}", config.display());
-            DaemonCommand::execute(config, demo, autobootstrap, capability_digest).await
+            DaemonCommand::execute(config, demo, autobootstrap, capability_digest, isolation).await
         }
         ExecutorCommand::CheckConfig { config } => {
             info!("Checking configuration: {}", config.display());
@@ -361,7 +362,8 @@ mod tests {
         std::fs::set_permissions(
             &config.executor.work_root,
             std::fs::Permissions::from_mode(0o755),
-        ).unwrap();
+        )
+        .unwrap();
 
         // Should succeed but will log a warning
         let result = ensure_directories(&config);

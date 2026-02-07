@@ -3,19 +3,23 @@
 //! This module contains concrete implementations of the `IsolationBackend` trait:
 //! - `LinuxNativeBackend`: Uses Landlock LSM for filesystem access control (no mount isolation)
 //! - `ContainerBackend`: Uses mount namespaces for true filesystem isolation
+//! - `FirecrackerBackend`: Uses Firecracker microVMs for full hardware isolation
 //! - `HostDirectBackend`: No isolation, just policy guards (workstation mode)
 //!
 //! Future implementations:
 //! - `MacosNativeBackend`: Uses sandbox-exec (seatbelt)
-//! - `VmBackend`: Uses microVMs (firecracker, cloud-hypervisor)
 
 #[cfg(target_os = "linux")]
 pub mod container;
+#[cfg(target_os = "linux")]
+pub mod firecracker;
 pub mod host_direct;
 pub mod linux;
 
 #[cfg(target_os = "linux")]
 pub use container::ContainerBackend;
+#[cfg(target_os = "linux")]
+pub use firecracker::{FirecrackerBackend, FirecrackerConfig};
 pub use host_direct::HostDirectBackend;
 pub use linux::LinuxNativeBackend;
 
@@ -74,6 +78,20 @@ pub fn create_backend(
             #[cfg(not(target_os = "linux"))]
             {
                 anyhow::bail!("ContainerBackend is only available on Linux")
+            }
+        }
+        "firecracker" | "microvm" | "vm" => {
+            #[cfg(target_os = "linux")]
+            {
+                let config = FirecrackerConfig {
+                    work_root: work_root.to_path_buf(),
+                    ..Default::default()
+                };
+                Ok(Arc::new(FirecrackerBackend::new(config)?))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                anyhow::bail!("FirecrackerBackend is only available on Linux")
             }
         }
         "none" | "host" | "host-direct" | "workstation" => {

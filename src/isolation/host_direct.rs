@@ -19,11 +19,11 @@ use tokio::process::Command as TokioCommand;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use crate::core::intent::Command;
 use crate::core::isolation::{
     BackendCapabilities, BackendHealth, ExecContext, ExecOutput, IsolationBackend, ResourceLimits,
     ResourceUsage, Sandbox, SandboxCapabilities, SandboxSpec, StreamOutput,
 };
-use crate::core::intent::Command;
 use crate::core::sandbox::SandboxId;
 
 /// Host-direct backend for workstation mode
@@ -67,14 +67,8 @@ impl IsolationBackend for HostDirectBackend {
             persistent_sandboxes: true, // Working directories persist
             snapshots: false,
             max_concurrent_sandboxes: None, // Unlimited
-            available_profiles: vec![
-                "workstation".to_string(),
-                "permissive".to_string(),
-            ],
-            platform_features: vec![
-                "soft-limits".to_string(),
-                "policy-only".to_string(),
-            ],
+            available_profiles: vec!["workstation".to_string(), "permissive".to_string()],
+            platform_features: vec!["soft-limits".to_string(), "policy-only".to_string()],
         })
     }
 
@@ -156,9 +150,7 @@ impl IsolationBackend for HostDirectBackend {
             healthy: true,
             active_sandboxes: sandboxes.len() as u32,
             resource_utilization: 0.0, // No isolation means no resource tracking
-            warnings: vec![
-                "Running in workstation mode - no kernel isolation".to_string(),
-            ],
+            warnings: vec!["Running in workstation mode - no kernel isolation".to_string()],
             last_sandbox_created: None,
         })
     }
@@ -189,9 +181,7 @@ impl Sandbox for HostDirectSandbox {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<StreamOutput>(100);
 
         // Spawn a task to drain the channel (we don't need the streaming output)
-        tokio::spawn(async move {
-            while rx.recv().await.is_some() {}
-        });
+        tokio::spawn(async move { while rx.recv().await.is_some() {} });
 
         self.exec_streaming(cmd, ctx, tx).await
     }
@@ -220,7 +210,10 @@ impl Sandbox for HostDirectSandbox {
         env.extend(ctx.extra_env.iter().cloned());
 
         // Set informational env vars (not enforced)
-        env.insert("AGENTD_SANDBOX_ID".to_string(), self.id.as_str().to_string());
+        env.insert(
+            "AGENTD_SANDBOX_ID".to_string(),
+            self.id.as_str().to_string(),
+        );
         env.insert("AGENTD_SANDBOX_MODE".to_string(), "host-direct".to_string());
 
         // Build command
@@ -412,6 +405,7 @@ mod tests {
             workdir: PathBuf::from("/workspace"),
             allowed_paths_ro: vec![],
             allowed_paths_rw: vec![],
+            bind_mounts: vec![],
             allowed_network: vec![],
             environment: vec![],
             limits: ResourceLimits::default(),
