@@ -10,9 +10,7 @@ use tempfile::TempDir;
 
 use agentd::{
     capabilities::register_builtin_capabilities,
-    capability::{
-        ExecCtx, ExecutionScope, SandboxConfig,
-    },
+    capability::{ExecCtx, ExecutionScope, SandboxConfig},
     runners::{create_exec_context, MemoryOutputSink, RunnerRegistry, Scope},
     ExecutionLimits,
 };
@@ -26,14 +24,14 @@ async fn test_filesystem_isolation_penetration() -> Result<()> {
     let registry = register_builtin_capabilities();
 
     let capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
     // Create legitimate file in working directory
     let allowed_file = temp_dir.path().join("allowed.txt");
     tokio::fs::write(&allowed_file, "This file is allowed").await?;
 
-    // Attempt various path traversal attacks
+    // Attempt various cwd traversal/escape attacks
     let traversal_attacks = vec![
         "../../../etc/passwd",
         "..\\..\\..\\windows\\system32\\config\\sam",
@@ -67,47 +65,36 @@ async fn test_filesystem_isolation_penetration() -> Result<()> {
         },
     };
 
-    for (i, attack_path) in traversal_attacks.iter().enumerate() {
+    for (i, attack_cwd) in traversal_attacks.iter().enumerate() {
         let intent = Intent::new(
-            ProtoCapability::FsReadV1,
+            ProtoCapability::ShellExec,
             format!("attack-{}", i),
-            json!({ "path": attack_path }),
+            json!({ "command": "echo", "args": ["attack"], "cwd": attack_cwd }),
             30000,
             "attacker".to_string(),
         );
 
-        // All path traversal attempts should be blocked during validation
-        let validation_result = capability.validate(&intent);
+        // Traversal attempts are enforced at execution time in full mode.
+        let execution_result = capability.execute(intent, exec_context.clone()).await;
         assert!(
-            validation_result.is_err(),
-            "Path traversal attack should be blocked: {}",
-            attack_path
+            execution_result.is_err(),
+            "cwd traversal attack should be blocked: {}",
+            attack_cwd
         );
-
-        // Even if validation somehow passed, execution should fail safely
-        if validation_result.is_ok() {
-            let execution_result = capability.execute(intent, exec_context.clone()).await;
-            assert!(
-                execution_result.is_err()
-                    || execution_result.unwrap().status == smith_protocol::ExecutionStatus::Error,
-                "Execution should fail safely for attack: {}",
-                attack_path
-            );
-        }
     }
 
-    // Verify legitimate access still works
+    // Verify legitimate execution still works
     let legitimate_intent = Intent::new(
-        ProtoCapability::FsReadV1,
+        ProtoCapability::ShellExec,
         "legitimate".to_string(),
-        json!({ "path": "allowed.txt" }),
+        json!({ "command": "echo", "args": ["allowed"], "cwd": "." }),
         30000,
         "user".to_string(),
     );
 
     assert!(
-        capability.validate(&legitimate_intent).is_ok(),
-        "Legitimate file access should still work"
+        capability.execute(legitimate_intent, exec_context).await.is_ok(),
+        "Legitimate command execution should still work"
     );
 
     Ok(())
@@ -119,68 +106,67 @@ async fn test_http_fetch_penetration() -> Result<()> {
     let registry = register_builtin_capabilities();
 
     let capability = registry
-        .get("http.fetch.v1")
-        .expect("http.fetch.v1 should be registered");
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
-    // Attempt various network bypass attacks
-    let network_attacks = vec![
-        "http://127.0.0.1:22",                                 // SSH port
-        "http://localhost:3306",                               // MySQL port
-        "http://192.168.1.1/admin",                            // Private network
-        "http://10.0.0.1/config",                              // Private network
-        "http://172.16.0.1/setup",                             // Private network
-        "http://169.254.169.254/metadata",                     // AWS metadata service
-        "http://metadata.google.internal/computeMetadata/v1/", // GCP metadata
-        "ftp://private-server.internal/secrets",               // Non-HTTP scheme
-        "file:///etc/passwd",                                  // Local file access
-        "javascript:alert('xss')",                             // JavaScript scheme
-        "data:text/plain;base64,ZXRjL3Bhc3N3ZA==",             // Data URL
-        "http://[::1]:22",                                     // IPv6 localhost
-        "http://0x7f000001",                                   // Hex notation localhost
-        "http://2130706433",                                   // Decimal notation localhost
-        "http://0177.0.0.1",                                   // Octal notation localhost
-        "http://127.1",                                        // Shortened IP notation
-        "http://example.com@127.0.0.1/",                       // Username trick
-        "http://127.0.0.1#.example.com/",                      // Fragment trick
-        "http://127.0.0.1.example.com/", // Subdomain trick (if resolved to localhost)
+    let exec_context = ExecCtx {
+        workdir: std::env::temp_dir(),
+        limits: CapabilityExecutionLimits::default(),
+        scope: ExecutionScope {
+            paths: vec![],
+            urls: vec![],
+            env_vars: vec![],
+            custom: HashMap::new(),
+        },
+        trace_id: "env-attack-test".to_string(),
+        sandbox: SandboxConfig {
+            mode: SandboxMode::Full,
+            landlock_enabled: true,
+            seccomp_enabled: true,
+            cgroups_enabled: true,
+            namespaces_enabled: true,
+        },
+    };
+
+    // Attempt various environment-based injection attacks blocked in full mode.
+    let env_attacks = vec![
+        ("LD_PRELOAD", "/tmp/pwn.so"),
+        ("LD_LIBRARY_PATH", "/tmp/lib"),
+        ("DYLD_INSERT_LIBRARIES", "/tmp/pwn.dylib"),
+        ("DYLD_LIBRARY_PATH", "/tmp/lib"),
+        ("BASH_ENV", "/tmp/bashrc"),
+        ("ENV", "/tmp/envrc"),
     ];
 
-    for (i, attack_url) in network_attacks.iter().enumerate() {
+    for (i, (key, value)) in env_attacks.iter().enumerate() {
         let intent = Intent::new(
-            ProtoCapability::HttpFetchV1,
-            format!("network-attack-{}", i),
-            json!({
-                "url": attack_url,
-                "method": "GET"
-            }),
+            ProtoCapability::ShellExec,
+            format!("env-attack-{}", i),
+            json!({ "command": "echo", "args": ["test"], "env": { (*key): *value } }),
             30000,
             "attacker".to_string(),
         );
 
-        // All network bypass attempts should be blocked during validation
-        let validation_result = capability.validate(&intent);
+        let execution_result = capability.execute(intent, exec_context.clone()).await;
         assert!(
-            validation_result.is_err(),
-            "Network bypass attack should be blocked: {}",
-            attack_url
+            execution_result.is_err(),
+            "Environment injection should be blocked: {}",
+            key
         );
     }
 
-    // Test legitimate external URL
+    // Legitimate env usage should still work.
     let legitimate_intent = Intent::new(
-        ProtoCapability::HttpFetchV1,
+        ProtoCapability::ShellExec,
         "legitimate".to_string(),
-        json!({
-            "url": "https://httpbin.org/get",
-            "method": "GET"
-        }),
+        json!({ "command": "echo", "args": ["ok"], "env": { "SAFE_ENV": "1" } }),
         30000,
         "user".to_string(),
     );
 
     assert!(
-        capability.validate(&legitimate_intent).is_ok(),
-        "Legitimate external URL should be allowed"
+        capability.execute(legitimate_intent, exec_context).await.is_ok(),
+        "Legitimate environment should be allowed"
     );
 
     Ok(())
@@ -257,8 +243,8 @@ async fn test_symlink_attack_prevention() -> Result<()> {
     let registry = register_builtin_capabilities();
 
     let capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
     // Create a legitimate file
     let target_file = temp_dir.path().join("target.txt");
@@ -276,11 +262,15 @@ async fn test_symlink_attack_prevention() -> Result<()> {
         std::os::unix::fs::symlink(&target_file, &symlink_path)?;
     }
 
-    // Attempt to read through symlink
+    // Attempt to execute using symlinked cwd that escapes workdir
     let symlink_intent = Intent::new(
-        ProtoCapability::FsReadV1,
+        ProtoCapability::ShellExec,
         "symlink-attack".to_string(),
-        json!({ "path": symlink_path.file_name().unwrap().to_string_lossy() }),
+        json!({
+            "command": "echo",
+            "args": ["symlink"],
+            "cwd": symlink_path.file_name().unwrap().to_string_lossy()
+        }),
         30000,
         "attacker".to_string(),
     );
@@ -304,23 +294,11 @@ async fn test_symlink_attack_prevention() -> Result<()> {
         },
     };
 
-    // Validation might catch this, or execution should handle it safely
-    let validation_result = capability.validate(&symlink_intent);
-    if validation_result.is_ok() {
-        let execution_result = capability.execute(symlink_intent, exec_context).await;
-        // If execution proceeds, it should either fail safely or be constrained by Landlock
-        if let Ok(result) = execution_result {
-            // If successful, should not contain system file content
-            if let Some(output) = result.output {
-                let content = output.to_string();
-                assert!(
-                    !content.contains("root:"),
-                    "Should not read system password file"
-                );
-                assert!(!content.contains("/bin/"), "Should not read system files");
-            }
-        }
-    }
+    let execution_result = capability.execute(symlink_intent, exec_context).await;
+    assert!(
+        execution_result.is_err(),
+        "Symlink cwd escape should be blocked in full mode"
+    );
 
     Ok(())
 }
@@ -337,9 +315,9 @@ async fn test_race_condition_protection() -> Result<()> {
 
     // Test that validation is stable under concurrent access
     let intent = Intent::new(
-        ProtoCapability::FsReadV1,
+        ProtoCapability::ShellExec,
         "race-test".to_string(),
-        json!({ "path": "race.txt" }),
+        json!({ "command": "echo", "args": ["race.txt"] }),
         30000,
         "test-user".to_string(),
     );
@@ -353,8 +331,8 @@ async fn test_race_condition_protection() -> Result<()> {
 
         let task = tokio::spawn(async move {
             let capability = registry_ref
-                .get("fs.read.v1")
-                .expect("fs.read.v1 should be registered");
+                .get("shell.exec.v1")
+                .expect("shell.exec.v1 should be registered");
             // All validations should be consistent
             let result = capability.validate(&intent_clone);
             (i, result)
@@ -392,10 +370,10 @@ async fn test_privilege_escalation_prevention() -> Result<()> {
     let registry = register_builtin_capabilities();
 
     let capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
-    // Attempt to access privileged system files
+    // Attempt to use privileged absolute cwd paths (blocked in full mode).
     let privileged_paths = vec![
         "/etc/shadow",
         "/etc/sudoers",
@@ -408,18 +386,31 @@ async fn test_privilege_escalation_prevention() -> Result<()> {
 
     for path in privileged_paths {
         let intent = Intent::new(
-            ProtoCapability::FsReadV1,
+            ProtoCapability::ShellExec,
             "privilege-escalation".to_string(),
-            json!({ "path": path }),
+            json!({ "command": "echo", "args": ["blocked"], "cwd": path }),
             30000,
             "attacker".to_string(),
         );
 
-        // Should be blocked at validation
-        let validation_result = capability.validate(&intent);
+        let mut sandbox = SandboxConfig::default();
+        sandbox.mode = SandboxMode::Full;
+        let exec_ctx = ExecCtx {
+            workdir: std::env::temp_dir(),
+            limits: CapabilityExecutionLimits::default(),
+            scope: ExecutionScope {
+                paths: vec![],
+                urls: vec![],
+                env_vars: vec![],
+                custom: HashMap::new(),
+            },
+            trace_id: "privilege-test".to_string(),
+            sandbox,
+        };
+        let validation_result = capability.execute(intent, exec_ctx).await;
         assert!(
             validation_result.is_err(),
-            "Privileged file access should be blocked: {}",
+            "Privileged cwd should be blocked: {}",
             path
         );
     }
@@ -434,8 +425,8 @@ async fn test_container_escape_prevention() -> Result<()> {
     let registry = register_builtin_capabilities();
 
     let capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
     // Attempt to access container runtime files that could enable escape
     let container_escape_paths = vec![
@@ -450,43 +441,38 @@ async fn test_container_escape_prevention() -> Result<()> {
 
     for path in container_escape_paths {
         let intent = Intent::new(
-            ProtoCapability::FsReadV1,
+            ProtoCapability::ShellExec,
             "container-escape".to_string(),
-            json!({ "path": path }),
+            json!({ "command": "echo", "args": ["escape"], "cwd": path }),
             30000,
             "attacker".to_string(),
         );
 
-        // Should be blocked at validation or execution
-        let validation_result = capability.validate(&intent);
-        if validation_result.is_ok() {
-            let exec_context = ExecCtx {
-                workdir: temp_dir.path().to_path_buf(),
-                limits: CapabilityExecutionLimits::default(),
-                scope: ExecutionScope {
-                    paths: vec![],
-                    urls: vec![],
-                    env_vars: vec![],
-                    custom: HashMap::new(),
-                },
-                trace_id: "escape-test".to_string(),
-                sandbox: SandboxConfig {
-                    mode: SandboxMode::Full,
-                    landlock_enabled: true,
-                    seccomp_enabled: true,
-                    cgroups_enabled: true,
-                    namespaces_enabled: true,
-                },
-            };
+        let exec_context = ExecCtx {
+            workdir: temp_dir.path().to_path_buf(),
+            limits: CapabilityExecutionLimits::default(),
+            scope: ExecutionScope {
+                paths: vec![],
+                urls: vec![],
+                env_vars: vec![],
+                custom: HashMap::new(),
+            },
+            trace_id: "escape-test".to_string(),
+            sandbox: SandboxConfig {
+                mode: SandboxMode::Full,
+                landlock_enabled: true,
+                seccomp_enabled: true,
+                cgroups_enabled: true,
+                namespaces_enabled: true,
+            },
+        };
 
-            let execution_result = capability.execute(intent, exec_context).await;
-            assert!(
-                execution_result.is_err()
-                    || execution_result.unwrap().status == smith_protocol::ExecutionStatus::Error,
-                "Container escape attempt should fail: {}",
-                path
-            );
-        }
+        let execution_result = capability.execute(intent, exec_context).await;
+        assert!(
+            execution_result.is_err(),
+            "Container escape attempt should fail: {}",
+            path
+        );
     }
 
     Ok(())
@@ -497,69 +483,35 @@ async fn test_container_escape_prevention() -> Result<()> {
 async fn test_malformed_input_handling() -> Result<()> {
     let registry = register_builtin_capabilities();
 
-    let fs_capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
+    let shell_capability = registry
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
-    let http_capability = registry
-        .get("http.fetch.v1")
-        .expect("http.fetch.v1 should be registered");
-
-    // Test malformed fs.read.v1 inputs
-    let malformed_fs_inputs = vec![
-        json!({}),                                                        // Missing required fields
-        json!({"path": 123}),                                             // Wrong type
-        json!({"path": null}),                                            // Null value
-        json!({"path": ""}),                                              // Empty path
-        json!({"path": "test.txt", "len": -1}),                           // Negative length
-        json!({"path": "test.txt", "len": "invalid"}),                    // Invalid length type
-        json!({"path": "\x00\x01\x02\x03"}),                              // Binary data in path
-        json!({"path": "a".repeat(1000)}),                                // Extremely long path
-        json!({"path": "test.txt", "extra_field": "should_not_be_here"}), // Extra fields
+    let malformed_shell_inputs = vec![
+        json!({}), // Missing required fields
+        json!({"command": 123}), // Wrong type
+        json!({"command": null}), // Null value
+        json!({"command": ""}), // Empty command
+        json!({"command": "echo", "timeout_ms": 0}), // Invalid timeout
+        json!({"command": "echo", "timeout_ms": 999999}), // Timeout too large
+        json!({"command": "a".repeat(5000)}), // Extremely long command
+        json!({"command": "echo", "extra_field": "should_not_be_here"}), // Extra fields
+        json!({"command": "echo", "args": "not-an-array"}), // Invalid args type
     ];
 
-    for (i, malformed_input) in malformed_fs_inputs.iter().enumerate() {
+    for (i, malformed_input) in malformed_shell_inputs.iter().enumerate() {
         let intent = Intent::new(
-            ProtoCapability::FsReadV1,
-            format!("malformed-fs-{}", i),
+            ProtoCapability::ShellExec,
+            format!("malformed-shell-{}", i),
             malformed_input.clone(),
             30000,
             "attacker".to_string(),
         );
 
-        let validation_result = fs_capability.validate(&intent);
+        let validation_result = shell_capability.validate(&intent);
         assert!(
             validation_result.is_err(),
-            "Malformed fs input should be rejected: {}",
-            malformed_input
-        );
-    }
-
-    // Test malformed http.fetch.v1 inputs
-    let malformed_http_inputs = vec![
-        json!({}),                                                        // Missing required fields
-        json!({"url": 123}),                                              // Wrong type
-        json!({"url": "not-a-url"}),                                      // Invalid URL format
-        json!({"url": "http://example.com", "method": "INVALID"}),        // Invalid HTTP method
-        json!({"url": "http://example.com", "timeout": -1}),              // Negative timeout
-        json!({"url": "http://example.com", "headers": "not-an-object"}), // Invalid headers type
-        json!({"url": "ftp://example.com"}),                              // Unsupported protocol
-        json!({"url": format!("http://{}.com", "x".repeat(2000))}),       // Extremely long URL
-    ];
-
-    for (i, malformed_input) in malformed_http_inputs.iter().enumerate() {
-        let intent = Intent::new(
-            ProtoCapability::HttpFetchV1,
-            format!("malformed-http-{}", i),
-            malformed_input.clone(),
-            30000,
-            "attacker".to_string(),
-        );
-
-        let validation_result = http_capability.validate(&intent);
-        assert!(
-            validation_result.is_err(),
-            "Malformed http input should be rejected: {}",
+            "Malformed shell input should be rejected: {}",
             malformed_input
         );
     }

@@ -10,9 +10,7 @@ use tempfile::TempDir;
 
 use agentd::{
     capabilities::register_builtin_capabilities,
-    capability::{
-        ExecCtx, ExecutionScope, SandboxConfig,
-    },
+    capability::{ExecCtx, ExecutionScope, SandboxConfig},
     runners::{create_exec_context, MemoryOutputSink, RunnerRegistry, Scope},
     ExecutionLimits,
 };
@@ -25,26 +23,25 @@ async fn test_validation_error_handling() -> Result<()> {
     let registry = register_builtin_capabilities();
 
     let capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
     // Test various validation errors and ensure proper error types
     let validation_test_cases = vec![
-        (json!({ "path": "../../../etc/passwd" }), "path traversal"),
-        (json!({ "path": "" }), "empty path"),
-        (json!({}), "missing path"),
-        (json!({ "path": 123 }), "invalid path type"),
-        (json!({ "path": null }), "null path"),
+        (json!({ "command": "" }), "empty command"),
+        (json!({}), "missing command"),
+        (json!({ "command": "echo", "timeout_ms": 0 }), "invalid timeout"),
         (
-            json!({ "path": "test.txt", "max_bytes": -1 }),
-            "negative max_bytes",
+            json!({ "command": "echo", "timeout_ms": 999_999 }),
+            "timeout too large",
         ),
-        (json!({ "path": "\x00test.txt" }), "null byte in path"),
+        (json!({ "command": "echo", "forbidden_param": "value" }), "unsupported param"),
+        (json!({ "command": 123 }), "invalid command type"),
     ];
 
     for (params, description) in validation_test_cases {
         let intent = Intent::new(
-            ProtoCapability::FsReadV1,
+            ProtoCapability::ShellExec,
             "validation-error-test".to_string(),
             params.clone(),
             30000,
@@ -70,12 +67,12 @@ async fn test_validation_error_handling() -> Result<()> {
 
                 // Verify error is not leaking sensitive information
                 assert!(
-                    !error_msg.contains("/etc/passwd"),
-                    "Error should not leak sensitive paths"
+                    !error_msg.contains("super_secret_token"),
+                    "Error should not leak secret values"
                 );
                 assert!(
-                    !error_msg.contains("root:"),
-                    "Error should not leak sensitive content"
+                    !error_msg.contains("password="),
+                    "Error should not leak credential-like material"
                 );
 
                 println!("Validation error for {}: {}", description, error_msg);
@@ -400,17 +397,17 @@ async fn test_concurrent_error_handling() -> Result<()> {
 
         let task = tokio::spawn(async move {
             let capability = registry_ref
-                .get("fs.read.v1")
-                .expect("fs.read.v1 should be registered");
+                .get("shell.exec.v1")
+                .expect("shell.exec.v1 should be registered");
 
             let params = if i % 2 == 0 {
-                json!({ "path": "valid.txt" })
+                json!({ "command": "echo", "args": ["valid"] })
             } else {
-                json!({ "path": "nonexistent.txt", "len": 1024 })
+                json!({ "command": "echo", "timeout_ms": 0 })
             };
 
             let intent = Intent::new(
-                ProtoCapability::FsReadV1,
+                ProtoCapability::ShellExec,
                 format!("concurrent-error-{}", i),
                 params,
                 30000,
@@ -475,24 +472,24 @@ async fn test_error_recovery_and_cleanup() -> Result<()> {
     let registry = register_builtin_capabilities();
 
     let capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
     // Test recovery after various error conditions
     let error_recovery_tests = vec![
         // Invalid intent that should be rejected
         Intent::new(
-            ProtoCapability::FsReadV1,
+            ProtoCapability::ShellExec,
             "invalid-1".to_string(),
-            json!({ "path": "../../../etc/passwd" }),
+            json!({ "command": "" }),
             30000,
             "attacker".to_string(),
         ),
         // Another invalid intent
         Intent::new(
-            ProtoCapability::FsReadV1,
+            ProtoCapability::ShellExec,
             "invalid-2".to_string(),
-            json!({}), // Missing path
+            json!({ "command": "echo", "timeout_ms": 0 }),
             30000,
             "attacker".to_string(),
         ),
@@ -507,15 +504,11 @@ async fn test_error_recovery_and_cleanup() -> Result<()> {
         );
     }
 
-    // Create a valid file
-    let test_file = temp_dir.path().join("recovery_test.txt");
-    tokio::fs::write(&test_file, "Recovery test content").await?;
-
     // After errors, system should still work for valid requests
     let valid_intent = Intent::new(
-        ProtoCapability::FsReadV1,
+        ProtoCapability::ShellExec,
         "valid-after-errors".to_string(),
-        json!({ "path": "recovery_test.txt" }),
+        json!({ "command": "echo", "args": ["Recovery test content"] }),
         30000,
         "legitimate-user".to_string(),
     );
@@ -569,20 +562,19 @@ fn test_error_message_sanitization() {
     let registry = register_builtin_capabilities();
 
     let capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
     // Test that error messages don't leak sensitive information
     let sensitive_test_cases = vec![
-        json!({ "path": "/etc/passwd" }),
-        json!({ "path": "/root/.ssh/id_rsa" }),
-        json!({ "path": "../../../../sensitive_data.txt" }),
-        json!({ "path": "secret_key=abc123&password=xyz789" }),
+        json!({ "command": "x".repeat(5000), "token": "secret_key=abc123" }),
+        json!({ "command": "echo", "timeout_ms": 0, "password": "xyz789" }),
+        json!({ "command": 123, "api_key": "top_secret" }),
     ];
 
     for params in sensitive_test_cases {
         let intent = Intent::new(
-            ProtoCapability::FsReadV1,
+            ProtoCapability::ShellExec,
             "sanitization-test".to_string(),
             params,
             30000,
@@ -599,22 +591,14 @@ fn test_error_message_sanitization() {
                 !error_msg.contains("passwd"),
                 "Error should not contain 'passwd'"
             );
-            assert!(
-                !error_msg.contains("root"),
-                "Error should not contain 'root'"
-            );
             assert!(!error_msg.contains("ssh"), "Error should not contain 'ssh'");
             assert!(
-                !error_msg.contains("secret"),
-                "Error should not contain 'secret'"
+                !error_msg.contains("secret_key=abc123"),
+                "Error should not leak secret token values"
             );
             assert!(
-                !error_msg.contains("password"),
-                "Error should not contain 'password'"
-            );
-            assert!(
-                !error_msg.contains("key="),
-                "Error should not contain sensitive data patterns"
+                !error_msg.contains("xyz789"),
+                "Error should not leak password values"
             );
 
             // Error should be generic but informative

@@ -10,16 +10,14 @@ use tempfile::TempDir;
 
 use agentd::{
     capabilities::register_builtin_capabilities,
-    capability::{
-        ExecCtx, ExecutionScope, SandboxConfig,
-    },
+    capability::{ExecCtx, ExecutionScope, SandboxConfig},
     runners::{create_exec_context, MemoryOutputSink, RunnerRegistry, Scope},
     ExecutionLimits,
 };
 use smith_protocol::ExecutionLimits as CapabilityExecutionLimits;
 use smith_protocol::{Capability as ProtoCapability, Intent, SandboxMode};
 
-/// Helper to create execution context with security constraints  
+/// Helper to create execution context with security constraints
 fn create_secure_exec_context(
     workdir: &std::path::Path,
     limits: ExecutionLimits,
@@ -57,74 +55,62 @@ fn create_capability_context(workdir: std::path::PathBuf) -> ExecCtx {
     }
 }
 
-/// Test security boundary enforcement across multiple capabilities
+/// Test security boundary enforcement for shell.exec.v1 capability
 #[tokio::test]
 async fn test_multi_capability_security_boundaries() -> Result<()> {
     let temp_dir = TempDir::new()?;
     let registry = register_builtin_capabilities();
 
-    // Test fs.read.v1 security boundaries
-    let fs_capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
+    // Test shell.exec.v1 security boundaries
+    let shell_capability = registry
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
-    // Create test file outside the allowed directory
-    let restricted_file = temp_dir.path().join("restricted.txt");
-    tokio::fs::write(&restricted_file, "restricted content").await?;
-
-    // Attempt to read outside scope - should be blocked by validation
-    let malicious_intent = Intent::new(
-        ProtoCapability::FsReadV1,
-        "malicious-intent".to_string(),
-        json!({ "path": "../../../etc/passwd" }),
+    // Attempt to execute a command - validation should pass for valid params
+    let valid_intent = Intent::new(
+        ProtoCapability::ShellExec,
+        "valid-intent".to_string(),
+        json!({ "command": "echo", "args": ["hello"] }),
         30000,
         "test-signer".to_string(),
     );
 
-    let validation_result = fs_capability.validate(&malicious_intent);
+    let validation_result = shell_capability.validate(&valid_intent);
+    assert!(
+        validation_result.is_ok(),
+        "Valid command should pass validation"
+    );
+
+    // Test that empty command is rejected
+    let empty_command_intent = Intent::new(
+        ProtoCapability::ShellExec,
+        "empty-command".to_string(),
+        json!({ "command": "" }),
+        30000,
+        "test-signer".to_string(),
+    );
+
+    let validation_result = shell_capability.validate(&empty_command_intent);
     assert!(
         validation_result.is_err(),
-        "Path traversal attack should be blocked"
+        "Empty command should be rejected"
     );
 
-    // Test http.fetch.v1 security boundaries
-    let http_capability = registry
-        .get("http.fetch.v1")
-        .expect("http.fetch.v1 should be registered");
-
-    // Attempt to access private IP - should be blocked
-    let private_ip_intent = Intent::new(
-        ProtoCapability::HttpFetchV1,
-        "private-ip-intent".to_string(),
-        json!({
-            "url": "http://192.168.1.1/admin",
-            "method": "GET"
-        }),
+    // Test that very long command is rejected
+    let long_command = "a".repeat(5000);
+    let long_command_intent = Intent::new(
+        ProtoCapability::ShellExec,
+        "long-command".to_string(),
+        json!({ "command": long_command }),
         30000,
         "test-signer".to_string(),
     );
 
-    let validation_result = http_capability.validate(&private_ip_intent);
-    if validation_result.is_ok() {
-        eprintln!("Warning: private IP access not blocked in current environment");
-    }
-
-    // Attempt to access localhost - should be blocked
-    let localhost_intent = Intent::new(
-        ProtoCapability::HttpFetchV1,
-        "localhost-intent".to_string(),
-        json!({
-            "url": "http://localhost:22/ssh-keys",
-            "method": "GET"
-        }),
-        30000,
-        "test-signer".to_string(),
+    let validation_result = shell_capability.validate(&long_command_intent);
+    assert!(
+        validation_result.is_err(),
+        "Very long command should be rejected"
     );
-
-    let validation_result = http_capability.validate(&localhost_intent);
-    if validation_result.is_ok() {
-        eprintln!("Warning: localhost access not blocked in current environment");
-    }
 
     Ok(())
 }
@@ -261,51 +247,51 @@ async fn test_security_failure_recovery() -> Result<()> {
     let registry = register_builtin_capabilities();
 
     let capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
-    // Create multiple malicious intents
-    let malicious_intents = vec![
+    // Create multiple invalid intents
+    let invalid_intents = vec![
         Intent::new(
-            ProtoCapability::FsReadV1,
-            "path-traversal".to_string(),
-            json!({ "path": "../../../../etc/shadow" }),
+            ProtoCapability::ShellExec,
+            "empty-command".to_string(),
+            json!({ "command": "" }),
             30000,
             "attacker".to_string(),
         ),
         Intent::new(
-            ProtoCapability::FsReadV1,
-            "null-byte".to_string(),
-            json!({ "path": "test.txt\0/etc/passwd" }),
+            ProtoCapability::ShellExec,
+            "invalid-timeout".to_string(),
+            json!({ "command": "echo", "timeout_ms": 0 }),
             30000,
             "attacker".to_string(),
         ),
         Intent::new(
-            ProtoCapability::FsReadV1,
-            "symlink-attack".to_string(),
-            json!({ "path": "../../sensitive_file" }),
+            ProtoCapability::ShellExec,
+            "timeout-too-large".to_string(),
+            json!({ "command": "echo", "timeout_ms": 999999999 }),
             30000,
             "attacker".to_string(),
         ),
     ];
 
     // All should be rejected during validation
-    for (i, intent) in malicious_intents.iter().enumerate() {
+    for (i, intent) in invalid_intents.iter().enumerate() {
         let result = capability.validate(intent);
         assert!(
             result.is_err(),
-            "Malicious intent {} should be rejected",
+            "Invalid intent {} should be rejected",
             i + 1
         );
 
         // Verify system remains stable after rejection
         let _exec_context = create_capability_context(temp_dir.path().to_path_buf());
 
-        // System should still be able to execute valid intents after rejecting malicious ones
+        // System should still be able to execute valid intents after rejecting invalid ones
         let valid_intent = Intent::new(
-            ProtoCapability::FsReadV1,
+            ProtoCapability::ShellExec,
             "valid-after-attack".to_string(),
-            json!({ "path": "nonexistent.txt" }), // This will fail but safely
+            json!({ "command": "echo", "args": ["test"] }),
             30000,
             "legitimate-user".to_string(),
         );
@@ -313,14 +299,14 @@ async fn test_security_failure_recovery() -> Result<()> {
         let validation_result = capability.validate(&valid_intent);
         assert!(
             validation_result.is_ok(),
-            "System should accept valid intents after rejecting malicious ones"
+            "System should accept valid intents after rejecting invalid ones"
         );
     }
 
     Ok(())
 }
 
-/// Test performance under maximum security constraints  
+/// Test performance under maximum security constraints
 #[tokio::test]
 async fn test_performance_under_full_security() -> Result<()> {
     let temp_dir = TempDir::new()?;
@@ -469,18 +455,13 @@ async fn benchmark_security_overhead() -> Result<()> {
     let registry = register_builtin_capabilities();
 
     let capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 should be registered");
-
-    // Create test file
-    let test_file = temp_dir.path().join("benchmark.txt");
-    let content = "Benchmark content ".repeat(100);
-    tokio::fs::write(&test_file, &content).await?;
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 should be registered");
 
     let intent = Intent::new(
-        ProtoCapability::FsReadV1,
+        ProtoCapability::ShellExec,
         "benchmark-intent".to_string(),
-        json!({ "path": "benchmark.txt" }),
+        json!({ "command": "echo", "args": ["benchmark"] }),
         30000,
         "benchmarker".to_string(),
     );

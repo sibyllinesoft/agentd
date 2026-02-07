@@ -39,9 +39,7 @@ Configuration is loaded from environment variables and TOML files:
 
 Current supported capabilities:
 
-- `fs.read.v1` - Secure file system reading with path validation
-- `http.fetch.v1` - HTTP requests with network filtering
-- `sqlite.query.v1` - SQLite database queries
+- `shell.exec.v1` - Execute shell commands with output capture
 
 ## Security Modes
 

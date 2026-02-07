@@ -900,6 +900,24 @@ pub mod params {
         /// Historical data retention days (default: 30)
         pub retention_days: Option<u32>,
     }
+
+    /// Parameters for shell.exec.v1 capability
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "jsonschema", derive(schemars::JsonSchema))]
+    pub struct ShellExecV1 {
+        /// Command to execute
+        pub command: String,
+        /// Command arguments
+        pub args: Option<Vec<String>>,
+        /// Environment variables
+        pub env: Option<HashMap<String, String>>,
+        /// Working directory
+        pub cwd: Option<String>,
+        /// Timeout in milliseconds (default: 30000, max: 600000)
+        pub timeout_ms: Option<u32>,
+        /// Data to write to stdin
+        pub stdin: Option<String>,
+    }
 }
 
 /// Intent creation and signing utilities

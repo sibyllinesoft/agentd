@@ -10,9 +10,7 @@ use tempfile::TempDir;
 
 use agentd::{
     capabilities::register_builtin_capabilities,
-    capability::{
-        ExecCtx, ExecutionScope, SandboxConfig,
-    },
+    capability::{ExecCtx, ExecutionScope, SandboxConfig},
     runners::{MemoryOutputSink, OutputSink, RunnerRegistry, Scope},
     ExecutionLimits,
 };
@@ -39,7 +37,7 @@ fn create_capability_exec_context(workdir: std::path::PathBuf) -> ExecCtx {
 fn test_runner_registry_initialization() {
     let registry = RunnerRegistry::new(None);
 
-    // Check that currently active runners are registered (fs.write and git.clone are disabled during refactoring)
+    // Check that currently active runners are registered
     let expected_capabilities = vec!["fs.read", "http.fetch", "planner.exec"];
 
     for capability in &expected_capabilities {
@@ -71,13 +69,7 @@ fn test_runner_registry_initialization() {
 fn test_capability_registry_initialization() {
     let registry = register_builtin_capabilities();
 
-    // Check that currently active capabilities are registered (archive.read.v1 is disabled during refactoring)
-    let expected_capabilities = vec![
-        "fs.read.v1",
-        "http.fetch.v1",
-        "sqlite.query.v1",
-        "bench.report.v1",
-    ];
+    let expected_capabilities = vec!["shell.exec.v1"];
 
     for capability in &expected_capabilities {
         assert!(
@@ -239,20 +231,19 @@ async fn test_http_fetch_runner_integration() -> Result<()> {
 #[tokio::test]
 async fn test_capability_execution_integration() -> Result<()> {
     let temp_dir = TempDir::new()?;
-    let test_file = temp_dir.path().join("test.txt");
-    tokio::fs::write(&test_file, "Capability test content").await?;
 
     let registry = register_builtin_capabilities();
     let capability = registry
-        .get("fs.read.v1")
-        .expect("fs.read.v1 capability should be registered");
+        .get("shell.exec.v1")
+        .expect("shell.exec.v1 capability should be registered");
 
-    // Create test intent with relative path
+    // Create test intent
     let intent = Intent::new(
-        ProtoCapability::FsReadV1,
+        ProtoCapability::ShellExec,
         "test-intent".to_string(),
         json!({
-            "path": "test.txt"
+            "command": "echo",
+            "args": ["hello world"]
         }),
         30000,
         "test-signer".to_string(),
@@ -273,9 +264,9 @@ async fn test_capability_execution_integration() -> Result<()> {
     assert_eq!(result.status, ExecutionStatus::Ok);
     assert!(result.output.is_some());
 
-    // Check that file content was read
+    // Check that command output was captured
     let output = result.output.unwrap();
-    assert!(output.to_string().contains("Capability test content"));
+    assert!(output["stdout"].as_str().unwrap().contains("hello world"));
 
     Ok(())
 }
@@ -311,31 +302,20 @@ fn test_capability_specifications() {
         );
     }
 
-    // Check that specific capabilities have expected properties
-    let fs_read_spec = specs.iter().find(|s| s.name == "fs.read.v1");
+    // Check that shell.exec.v1 has expected properties
+    let shell_exec_spec = specs.iter().find(|s| s.name == "shell.exec.v1");
     assert!(
-        fs_read_spec.is_some(),
-        "Should have fs.read.v1 specification"
+        shell_exec_spec.is_some(),
+        "Should have shell.exec.v1 specification"
     );
-    let fs_read_spec = fs_read_spec.unwrap();
+    let shell_exec_spec = shell_exec_spec.unwrap();
     assert!(
-        fs_read_spec.resource_requirements.filesystem_access,
-        "fs.read.v1 should require filesystem access"
+        shell_exec_spec.resource_requirements.filesystem_access,
+        "shell.exec.v1 should require filesystem access"
     );
     assert!(
-        !fs_read_spec.resource_requirements.network_access,
-        "fs.read.v1 should not require network access"
-    );
-
-    let http_fetch_spec = specs.iter().find(|s| s.name == "http.fetch.v1");
-    assert!(
-        http_fetch_spec.is_some(),
-        "Should have http.fetch.v1 specification"
-    );
-    let http_fetch_spec = http_fetch_spec.unwrap();
-    assert!(
-        http_fetch_spec.resource_requirements.network_access,
-        "http.fetch.v1 should require network access"
+        shell_exec_spec.resource_requirements.external_commands,
+        "shell.exec.v1 should require external commands"
     );
 }
 
@@ -358,23 +338,10 @@ fn test_registry_coordination() {
         "Capability registry should have registered capabilities"
     );
 
-    // Verify that core capabilities exist in both systems (with different naming conventions)
+    // Verify that shell.exec.v1 exists in the capability registry
     assert!(
-        runner_capabilities.contains(&"fs.read".to_string()),
-        "Runner registry should have fs.read"
-    );
-    assert!(
-        capabilities.contains(&"fs.read.v1".to_string()),
-        "Capability registry should have fs.read.v1"
-    );
-
-    assert!(
-        runner_capabilities.contains(&"http.fetch".to_string()),
-        "Runner registry should have http.fetch"
-    );
-    assert!(
-        capabilities.contains(&"http.fetch.v1".to_string()),
-        "Capability registry should have http.fetch.v1"
+        capabilities.contains(&"shell.exec.v1".to_string()),
+        "Capability registry should have shell.exec.v1"
     );
 }
 
@@ -383,12 +350,13 @@ fn test_registry_coordination() {
 fn test_intent_validation_integration() {
     let registry = register_builtin_capabilities();
 
-    // Test valid intent with relative path
+    // Test valid intent
     let valid_intent = Intent::new(
-        ProtoCapability::FsReadV1,
+        ProtoCapability::ShellExec,
         "test-intent".to_string(),
         json!({
-            "path": "test.txt"
+            "command": "echo",
+            "args": ["test"]
         }),
         30000,
         "test-signer".to_string(),
@@ -400,22 +368,18 @@ fn test_intent_validation_integration() {
         "Valid intent should pass validation"
     );
 
-    // Test intent with invalid capability
-    // Note: This would require modifying the intent's capability field directly
-    // For this test, we'll test validation through the capability interface
-
-    let fs_read_capability = registry.get("fs.read.v1").unwrap();
+    let shell_exec_capability = registry.get("shell.exec.v1").unwrap();
 
     // Test with missing required parameter
     let invalid_params_intent = Intent::new(
-        ProtoCapability::FsReadV1,
+        ProtoCapability::ShellExec,
         "test-intent".to_string(),
-        json!({}), // Missing path parameter
+        json!({}), // Missing command parameter
         30000,
         "test-signer".to_string(),
     );
 
-    let validation_result = fs_read_capability.validate(&invalid_params_intent);
+    let validation_result = shell_exec_capability.validate(&invalid_params_intent);
     assert!(
         validation_result.is_err(),
         "Intent with missing parameters should fail validation"
