@@ -51,7 +51,7 @@ The Menu System provides sophisticated user intervention capabilities for comple
 
 ## Usage
 
-```rust
+```text
 let menu_system = MenuSystem::new();
 let intervention_result = menu_system.request_intervention(
     workflow_id,
@@ -1756,7 +1756,9 @@ mod tests {
 
     #[test]
     fn test_user_decision_alternative_serialization() {
-        let decision = UserDecision::Alternative { approach: "new approach".to_string() };
+        let decision = UserDecision::Alternative {
+            approach: "new approach".to_string(),
+        };
         let json = serde_json::to_string(&decision).unwrap();
         let parsed: UserDecision = serde_json::from_str(&json).unwrap();
         if let UserDecision::Alternative { approach } = parsed {
@@ -1768,7 +1770,9 @@ mod tests {
 
     #[test]
     fn test_user_decision_escalate_serialization() {
-        let decision = UserDecision::Escalate { reason: "urgent issue".to_string() };
+        let decision = UserDecision::Escalate {
+            reason: "urgent issue".to_string(),
+        };
         let json = serde_json::to_string(&decision).unwrap();
         let parsed: UserDecision = serde_json::from_str(&json).unwrap();
         if let UserDecision::Escalate { reason } = parsed {
@@ -1780,7 +1784,9 @@ mod tests {
 
     #[test]
     fn test_user_decision_cancel_serialization() {
-        let decision = UserDecision::Cancel { reason: "user requested".to_string() };
+        let decision = UserDecision::Cancel {
+            reason: "user requested".to_string(),
+        };
         let json = serde_json::to_string(&decision).unwrap();
         let parsed: UserDecision = serde_json::from_str(&json).unwrap();
         if let UserDecision::Cancel { reason } = parsed {
@@ -1806,7 +1812,9 @@ mod tests {
 
     #[test]
     fn test_user_decision_manual_intervention_serialization() {
-        let decision = UserDecision::ManualIntervention { instructions: "check server".to_string() };
+        let decision = UserDecision::ManualIntervention {
+            instructions: "check server".to_string(),
+        };
         let json = serde_json::to_string(&decision).unwrap();
         let parsed: UserDecision = serde_json::from_str(&json).unwrap();
         if let UserDecision::ManualIntervention { instructions } = parsed {
@@ -2018,10 +2026,12 @@ mod tests {
         let result = InterventionResult {
             intervention_id: Uuid::new_v4(),
             workflow_id: Uuid::new_v4(),
-            decision: UserDecision::Escalate { reason: "test".to_string() },
+            decision: UserDecision::Escalate {
+                reason: "test".to_string(),
+            },
             selected_options: vec![],
             user_feedback: None,
-            continue_execution: false,  // Not continuing means escalated
+            continue_execution: false, // Not continuing means escalated
             decision_confidence: 0.5,
             response_time_seconds: 30,
             decided_at: chrono::Utc::now(),
@@ -2181,7 +2191,8 @@ mod tests {
                     dependencies: vec![],
                     metadata: HashMap::new(),
                 },
-                recovery_strategy: crate::planner::stall_detection::RecoveryStrategy::UserIntervention,
+                recovery_strategy:
+                    crate::planner::stall_detection::RecoveryStrategy::UserIntervention,
                 confidence: 0.8,
                 detected_at: chrono::Utc::now(),
                 resolution_deadline: None,
@@ -2227,7 +2238,10 @@ mod tests {
             },
         };
 
-        let decision = menu_system.determine_decision_from_options(&[], &context).await.unwrap();
+        let decision = menu_system
+            .determine_decision_from_options(&[], &context)
+            .await
+            .unwrap();
         if let UserDecision::Cancel { reason } = decision {
             assert_eq!(reason, "No options selected");
         } else {
@@ -2289,9 +2303,17 @@ mod tests {
                 },
             };
 
-            let decision = menu_system.determine_decision_from_options(&[option_id], &context).await.unwrap();
+            let decision = menu_system
+                .determine_decision_from_options(&[option_id], &context)
+                .await
+                .unwrap();
             let decision_str = format!("{:?}", decision);
-            assert!(decision_str.contains(expected_variant), "Expected {} in {:?}", expected_variant, decision);
+            assert!(
+                decision_str.contains(expected_variant),
+                "Expected {} in {:?}",
+                expected_variant,
+                decision
+            );
         }
     }
 
@@ -2328,7 +2350,10 @@ mod tests {
             resolution_deadline: None,
         };
 
-        let stakeholders = menu_system.identify_stakeholders(Uuid::new_v4(), &stall).await.unwrap();
+        let stakeholders = menu_system
+            .identify_stakeholders(Uuid::new_v4(), &stall)
+            .await
+            .unwrap();
         assert!(!stakeholders.is_empty());
         assert!(stakeholders.contains(&"workflow_owner".to_string()));
         assert!(stakeholders.contains(&"tech_lead".to_string()));
@@ -2371,13 +2396,17 @@ mod tests {
                     dependencies: vec![],
                     metadata: HashMap::new(),
                 },
-                recovery_strategy: crate::planner::stall_detection::RecoveryStrategy::UserIntervention,
+                recovery_strategy:
+                    crate::planner::stall_detection::RecoveryStrategy::UserIntervention,
                 confidence: 0.8,
                 detected_at: chrono::Utc::now(),
                 resolution_deadline: None,
             };
 
-            let impact = menu_system.assess_business_impact(Uuid::new_v4(), &stall).await.unwrap();
+            let impact = menu_system
+                .assess_business_impact(Uuid::new_v4(), &stall)
+                .await
+                .unwrap();
             assert_eq!(impact.financial_impact, expected_base);
         }
     }
@@ -2385,7 +2414,9 @@ mod tests {
     // UserDecision clone test
     #[test]
     fn test_user_decision_clone() {
-        let decision = UserDecision::Alternative { approach: "test".to_string() };
+        let decision = UserDecision::Alternative {
+            approach: "test".to_string(),
+        };
         let cloned = decision.clone();
         if let UserDecision::Alternative { approach } = cloned {
             assert_eq!(approach, "test");

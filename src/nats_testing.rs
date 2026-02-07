@@ -43,7 +43,8 @@ impl MockNatsPublisher {
     /// Configure a response for a specific subject
     pub fn set_response(&self, subject: &str, response: Vec<u8>) {
         let mut responses = self.responses.lock();
-        responses.entry(subject.to_string())
+        responses
+            .entry(subject.to_string())
             .or_insert_with(VecDeque::new)
             .push_back(response);
     }
@@ -51,7 +52,8 @@ impl MockNatsPublisher {
     /// Configure multiple responses for a subject (FIFO)
     pub fn set_responses(&self, subject: &str, responses_list: Vec<Vec<u8>>) {
         let mut responses = self.responses.lock();
-        let queue = responses.entry(subject.to_string())
+        let queue = responses
+            .entry(subject.to_string())
             .or_insert_with(VecDeque::new);
         for response in responses_list {
             queue.push_back(response);
@@ -80,7 +82,8 @@ impl MockNatsPublisher {
 
     /// Get published messages for a specific subject
     pub fn get_published_to(&self, subject: &str) -> Vec<Vec<u8>> {
-        self.published_messages.lock()
+        self.published_messages
+            .lock()
             .iter()
             .filter(|(s, _)| s == subject)
             .map(|(_, p)| p.clone())
@@ -89,7 +92,8 @@ impl MockNatsPublisher {
 
     /// Check if a message was published to a subject
     pub fn was_published_to(&self, subject: &str) -> bool {
-        self.published_messages.lock()
+        self.published_messages
+            .lock()
             .iter()
             .any(|(s, _)| s == subject)
     }
@@ -117,39 +121,58 @@ impl MockNatsPublisher {
 impl NatsPublisher for MockNatsPublisher {
     async fn publish(&self, subject: &str, payload: &[u8]) -> Result<()> {
         if self.should_fail(subject) {
-            return Err(anyhow::anyhow!("Mock NATS publish failure for subject: {}", subject));
+            return Err(anyhow::anyhow!(
+                "Mock NATS publish failure for subject: {}",
+                subject
+            ));
         }
 
-        self.published_messages.lock().push((subject.to_string(), payload.to_vec()));
+        self.published_messages
+            .lock()
+            .push((subject.to_string(), payload.to_vec()));
         Ok(())
     }
 
     async fn publish_with_reply(&self, subject: &str, _reply: &str, payload: &[u8]) -> Result<()> {
         if self.should_fail(subject) {
-            return Err(anyhow::anyhow!("Mock NATS publish failure for subject: {}", subject));
+            return Err(anyhow::anyhow!(
+                "Mock NATS publish failure for subject: {}",
+                subject
+            ));
         }
 
-        self.published_messages.lock().push((subject.to_string(), payload.to_vec()));
+        self.published_messages
+            .lock()
+            .push((subject.to_string(), payload.to_vec()));
         Ok(())
     }
 
     async fn request(&self, subject: &str, payload: &[u8]) -> Result<Vec<u8>> {
         if self.should_fail(subject) {
-            return Err(anyhow::anyhow!("Mock NATS request failure for subject: {}", subject));
+            return Err(anyhow::anyhow!(
+                "Mock NATS request failure for subject: {}",
+                subject
+            ));
         }
 
-        self.request_messages.lock().push((subject.to_string(), payload.to_vec()));
+        self.request_messages
+            .lock()
+            .push((subject.to_string(), payload.to_vec()));
 
         // Get pre-configured response if available
         let response = {
             let mut responses = self.responses.lock();
-            responses.get_mut(subject)
+            responses
+                .get_mut(subject)
                 .and_then(|queue| queue.pop_front())
         };
 
         match response {
             Some(r) => Ok(r),
-            None => Err(anyhow::anyhow!("No mock response configured for subject: {}", subject)),
+            None => Err(anyhow::anyhow!(
+                "No mock response configured for subject: {}",
+                subject
+            )),
         }
     }
 }
@@ -188,16 +211,15 @@ impl MockResultPublisher {
     }
 
     pub fn get_result_for(&self, intent_id: &str) -> Option<Vec<u8>> {
-        self.results.lock()
+        self.results
+            .lock()
             .iter()
             .find(|(id, _)| id == intent_id)
             .map(|(_, r)| r.clone())
     }
 
     pub fn was_result_published(&self, intent_id: &str) -> bool {
-        self.results.lock()
-            .iter()
-            .any(|(id, _)| id == intent_id)
+        self.results.lock().iter().any(|(id, _)| id == intent_id)
     }
 
     pub fn result_count(&self) -> usize {
@@ -213,10 +235,15 @@ impl MockResultPublisher {
 impl ResultPublisher for MockResultPublisher {
     async fn publish_result(&self, intent_id: &str, result: &[u8]) -> Result<()> {
         if *self.fail_on_publish.lock() {
-            return Err(anyhow::anyhow!("Mock result publish failure for intent: {}", intent_id));
+            return Err(anyhow::anyhow!(
+                "Mock result publish failure for intent: {}",
+                intent_id
+            ));
         }
 
-        self.results.lock().push((intent_id.to_string(), result.to_vec()));
+        self.results
+            .lock()
+            .push((intent_id.to_string(), result.to_vec()));
         Ok(())
     }
 }
@@ -255,16 +282,15 @@ impl MockIntentResultPublisher {
     }
 
     pub fn get_result_for(&self, intent_id: &str) -> Option<smith_protocol::IntentResult> {
-        self.results.lock()
+        self.results
+            .lock()
             .iter()
             .find(|(id, _)| id == intent_id)
             .map(|(_, r)| r.clone())
     }
 
     pub fn was_result_published(&self, intent_id: &str) -> bool {
-        self.results.lock()
-            .iter()
-            .any(|(id, _)| id == intent_id)
+        self.results.lock().iter().any(|(id, _)| id == intent_id)
     }
 
     pub fn result_count(&self) -> usize {
@@ -285,12 +311,21 @@ impl MockIntentResultPublisher {
 
 #[async_trait]
 impl IntentResultPublisher for MockIntentResultPublisher {
-    async fn publish_result(&self, intent_id: &str, result: &smith_protocol::IntentResult) -> Result<()> {
+    async fn publish_result(
+        &self,
+        intent_id: &str,
+        result: &smith_protocol::IntentResult,
+    ) -> Result<()> {
         if self.should_fail(intent_id) {
-            return Err(anyhow::anyhow!("Mock intent result publish failure for intent: {}", intent_id));
+            return Err(anyhow::anyhow!(
+                "Mock intent result publish failure for intent: {}",
+                intent_id
+            ));
         }
 
-        self.results.lock().push((intent_id.to_string(), result.clone()));
+        self.results
+            .lock()
+            .push((intent_id.to_string(), result.clone()));
         Ok(())
     }
 }
@@ -374,11 +409,14 @@ mod tests {
     #[tokio::test]
     async fn test_mock_publisher_request_multiple_responses() {
         let publisher = MockNatsPublisher::new();
-        publisher.set_responses("test.request", vec![
-            b"response1".to_vec(),
-            b"response2".to_vec(),
-            b"response3".to_vec(),
-        ]);
+        publisher.set_responses(
+            "test.request",
+            vec![
+                b"response1".to_vec(),
+                b"response2".to_vec(),
+                b"response3".to_vec(),
+            ],
+        );
 
         let r1 = publisher.request("test.request", b"req1").await.unwrap();
         let r2 = publisher.request("test.request", b"req2").await.unwrap();
@@ -419,7 +457,10 @@ mod tests {
     async fn test_mock_publisher_publish_with_reply() {
         let publisher = MockNatsPublisher::new();
 
-        publisher.publish_with_reply("subject", "reply.to", b"msg").await.unwrap();
+        publisher
+            .publish_with_reply("subject", "reply.to", b"msg")
+            .await
+            .unwrap();
 
         assert_eq!(publisher.published_count(), 1);
         assert!(publisher.was_published_to("subject"));
@@ -437,7 +478,10 @@ mod tests {
     async fn test_mock_result_publisher_publish() {
         let publisher = MockResultPublisher::new();
 
-        publisher.publish_result("intent-123", b"result data").await.unwrap();
+        publisher
+            .publish_result("intent-123", b"result data")
+            .await
+            .unwrap();
 
         assert_eq!(publisher.result_count(), 1);
         assert!(publisher.was_result_published("intent-123"));
@@ -450,8 +494,14 @@ mod tests {
     async fn test_mock_result_publisher_multiple_results() {
         let publisher = MockResultPublisher::new();
 
-        publisher.publish_result("intent-1", b"result1").await.unwrap();
-        publisher.publish_result("intent-2", b"result2").await.unwrap();
+        publisher
+            .publish_result("intent-1", b"result1")
+            .await
+            .unwrap();
+        publisher
+            .publish_result("intent-2", b"result2")
+            .await
+            .unwrap();
 
         assert_eq!(publisher.result_count(), 2);
         assert!(publisher.was_result_published("intent-1"));
@@ -473,7 +523,10 @@ mod tests {
     async fn test_mock_result_publisher_clear() {
         let publisher = MockResultPublisher::new();
 
-        publisher.publish_result("intent-123", b"result").await.unwrap();
+        publisher
+            .publish_result("intent-123", b"result")
+            .await
+            .unwrap();
         assert_eq!(publisher.result_count(), 1);
 
         publisher.clear();
@@ -536,7 +589,9 @@ mod tests {
 
     // ==================== MockIntentResultPublisher Tests ====================
 
-    fn create_test_intent_result(status: smith_protocol::ExecutionStatus) -> smith_protocol::IntentResult {
+    fn create_test_intent_result(
+        status: smith_protocol::ExecutionStatus,
+    ) -> smith_protocol::IntentResult {
         smith_protocol::IntentResult {
             intent_id: "test-intent".to_string(),
             status,
@@ -564,7 +619,10 @@ mod tests {
         let publisher = MockIntentResultPublisher::new();
         let result = create_test_intent_result(smith_protocol::ExecutionStatus::Ok);
 
-        publisher.publish_result("intent-123", &result).await.unwrap();
+        publisher
+            .publish_result("intent-123", &result)
+            .await
+            .unwrap();
 
         assert_eq!(publisher.result_count(), 1);
         assert!(publisher.was_result_published("intent-123"));
@@ -580,8 +638,14 @@ mod tests {
         let result1 = create_test_intent_result(smith_protocol::ExecutionStatus::Ok);
         let result2 = create_test_intent_result(smith_protocol::ExecutionStatus::Error);
 
-        publisher.publish_result("intent-1", &result1).await.unwrap();
-        publisher.publish_result("intent-2", &result2).await.unwrap();
+        publisher
+            .publish_result("intent-1", &result1)
+            .await
+            .unwrap();
+        publisher
+            .publish_result("intent-2", &result2)
+            .await
+            .unwrap();
 
         assert_eq!(publisher.result_count(), 2);
         assert!(publisher.was_result_published("intent-1"));
@@ -608,7 +672,10 @@ mod tests {
         let result = create_test_intent_result(smith_protocol::ExecutionStatus::Ok);
 
         // Should succeed on non-failing intent
-        publisher.publish_result("good-intent", &result).await.unwrap();
+        publisher
+            .publish_result("good-intent", &result)
+            .await
+            .unwrap();
         assert_eq!(publisher.result_count(), 1);
 
         // Should fail on failing intent
@@ -680,8 +747,14 @@ mod tests {
         let result1 = create_test_intent_result(smith_protocol::ExecutionStatus::Ok);
         let result2 = create_test_intent_result(smith_protocol::ExecutionStatus::Error);
 
-        publisher.publish_result("intent-1", &result1).await.unwrap();
-        publisher.publish_result("intent-2", &result2).await.unwrap();
+        publisher
+            .publish_result("intent-1", &result1)
+            .await
+            .unwrap();
+        publisher
+            .publish_result("intent-2", &result2)
+            .await
+            .unwrap();
 
         let all_results = publisher.get_results();
         assert_eq!(all_results.len(), 2);

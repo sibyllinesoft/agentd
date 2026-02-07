@@ -571,7 +571,10 @@ mod tests {
         let runtime_config = VmPoolRuntimeConfig::from(&config);
 
         assert_eq!(runtime_config.backup_after, Some(Duration::from_secs(300)));
-        assert_eq!(runtime_config.backup_destination, Some(PathBuf::from("/tmp/backups")));
+        assert_eq!(
+            runtime_config.backup_destination,
+            Some(PathBuf::from("/tmp/backups"))
+        );
     }
 
     #[test]
@@ -582,7 +585,10 @@ mod tests {
 
         let runtime_config = VmPoolRuntimeConfig::from(&config);
 
-        assert_eq!(runtime_config.nix_profile, Some("github:owner/repo".to_string()));
+        assert_eq!(
+            runtime_config.nix_profile,
+            Some("github:owner/repo".to_string())
+        );
     }
 
     #[test]
@@ -603,14 +609,24 @@ mod tests {
     fn test_vm_pool_runtime_config_with_env() {
         let temp = tempdir().unwrap();
         let mut config = create_test_vm_pool_config(temp.path().to_path_buf());
-        config.env.insert("HOME".to_string(), "/home/test".to_string());
-        config.env.insert("PATH".to_string(), "/usr/bin".to_string());
+        config
+            .env
+            .insert("HOME".to_string(), "/home/test".to_string());
+        config
+            .env
+            .insert("PATH".to_string(), "/usr/bin".to_string());
 
         let runtime_config = VmPoolRuntimeConfig::from(&config);
 
         assert_eq!(runtime_config.env.len(), 2);
-        assert_eq!(runtime_config.env.get("HOME"), Some(&"/home/test".to_string()));
-        assert_eq!(runtime_config.env.get("PATH"), Some(&"/usr/bin".to_string()));
+        assert_eq!(
+            runtime_config.env.get("HOME"),
+            Some(&"/home/test".to_string())
+        );
+        assert_eq!(
+            runtime_config.env.get("PATH"),
+            Some(&"/usr/bin".to_string())
+        );
     }
 
     #[test]

@@ -594,7 +594,10 @@ mod tests {
     fn test_security_level_equality() {
         assert_eq!(SecurityLevel::Basic, SecurityLevel::Basic);
         assert_eq!(SecurityLevel::FullIsolation, SecurityLevel::FullIsolation);
-        assert_eq!(SecurityLevel::PolicyEnforcement, SecurityLevel::PolicyEnforcement);
+        assert_eq!(
+            SecurityLevel::PolicyEnforcement,
+            SecurityLevel::PolicyEnforcement
+        );
         assert_eq!(SecurityLevel::Complete, SecurityLevel::Complete);
         assert_ne!(SecurityLevel::Basic, SecurityLevel::Complete);
     }
@@ -664,7 +667,14 @@ mod tests {
         let config = TestConfig::from_env();
         // from_env returns based on SMITH_TEST_MODE which is set in init_test_env
         // Without init, it defaults to unit
-        assert!(matches!(config.test_mode, TestMode::Unit | TestMode::Security | TestMode::Integration | TestMode::Performance | TestMode::EndToEnd));
+        assert!(matches!(
+            config.test_mode,
+            TestMode::Unit
+                | TestMode::Security
+                | TestMode::Integration
+                | TestMode::Performance
+                | TestMode::EndToEnd
+        ));
     }
 
     #[test]

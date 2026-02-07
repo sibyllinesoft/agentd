@@ -524,7 +524,10 @@ pub mod mock {
 
         /// Pre-seed a result for testing
         pub async fn seed_result(&self, intent_id: &str, result: smith_protocol::IntentResult) {
-            self.results.write().await.insert(intent_id.to_string(), result);
+            self.results
+                .write()
+                .await
+                .insert(intent_id.to_string(), result);
             self.processed.write().await.insert(intent_id.to_string());
         }
 
@@ -565,7 +568,10 @@ pub mod mock {
             Ok(self.processed.read().await.contains(intent_id))
         }
 
-        async fn get_result(&self, intent_id: &str) -> Result<Option<smith_protocol::IntentResult>> {
+        async fn get_result(
+            &self,
+            intent_id: &str,
+        ) -> Result<Option<smith_protocol::IntentResult>> {
             self.get_result_calls.fetch_add(1, Ordering::SeqCst);
             if self.should_fail_get_result.load(Ordering::SeqCst) {
                 return Err(anyhow!("Mock get_result failure"));
@@ -591,7 +597,10 @@ pub mod mock {
             if self.should_fail_store_result.load(Ordering::SeqCst) {
                 return Err(anyhow!("Mock store_result failure"));
             }
-            self.results.write().await.insert(intent_id.to_string(), result.clone());
+            self.results
+                .write()
+                .await
+                .insert(intent_id.to_string(), result.clone());
             self.processed.write().await.insert(intent_id.to_string());
             self.processing.write().await.remove(intent_id);
             Ok(())
@@ -851,7 +860,10 @@ mod tests {
     }
 
     // Helper to create test IntentResult
-    fn create_test_intent_result(intent_id: &str, status: smith_protocol::ExecutionStatus) -> smith_protocol::IntentResult {
+    fn create_test_intent_result(
+        intent_id: &str,
+        status: smith_protocol::ExecutionStatus,
+    ) -> smith_protocol::IntentResult {
         use smith_protocol::{AuditRef, ExecutionError, IntentResult, RunnerMetadata};
 
         IntentResult {
@@ -883,12 +895,22 @@ mod tests {
         let store = IdempotencyStore::new(temp_dir.path()).await.unwrap();
 
         let intent_id = Uuid::new_v4();
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
 
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
-        store.record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result).await.unwrap();
+        let result =
+            create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
+        store
+            .record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
 
-        let lookup = store.lookup(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        let lookup = store
+            .lookup(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         assert!(lookup.is_some());
         let record = lookup.unwrap();
         assert_eq!(record.status, smith_protocol::ExecutionStatus::Ok);
@@ -900,14 +922,29 @@ mod tests {
         let store = IdempotencyStore::new(temp_dir.path()).await.unwrap();
 
         let intent_id = Uuid::new_v4();
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
 
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Denied);
-        store.record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result).await.unwrap();
+        let result = create_test_intent_result(
+            &intent_id.to_string(),
+            smith_protocol::ExecutionStatus::Denied,
+        );
+        store
+            .record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
 
-        let lookup = store.lookup(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        let lookup = store
+            .lookup(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         assert!(lookup.is_some());
-        assert_eq!(lookup.unwrap().status, smith_protocol::ExecutionStatus::Denied);
+        assert_eq!(
+            lookup.unwrap().status,
+            smith_protocol::ExecutionStatus::Denied
+        );
     }
 
     #[tokio::test]
@@ -916,14 +953,29 @@ mod tests {
         let store = IdempotencyStore::new(temp_dir.path()).await.unwrap();
 
         let intent_id = Uuid::new_v4();
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
 
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Error);
-        store.record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result).await.unwrap();
+        let result = create_test_intent_result(
+            &intent_id.to_string(),
+            smith_protocol::ExecutionStatus::Error,
+        );
+        store
+            .record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
 
-        let lookup = store.lookup(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        let lookup = store
+            .lookup(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         assert!(lookup.is_some());
-        assert_eq!(lookup.unwrap().status, smith_protocol::ExecutionStatus::Error);
+        assert_eq!(
+            lookup.unwrap().status,
+            smith_protocol::ExecutionStatus::Error
+        );
     }
 
     #[tokio::test]
@@ -932,14 +984,29 @@ mod tests {
         let store = IdempotencyStore::new(temp_dir.path()).await.unwrap();
 
         let intent_id = Uuid::new_v4();
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
 
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Timeout);
-        store.record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result).await.unwrap();
+        let result = create_test_intent_result(
+            &intent_id.to_string(),
+            smith_protocol::ExecutionStatus::Timeout,
+        );
+        store
+            .record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
 
-        let lookup = store.lookup(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        let lookup = store
+            .lookup(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         assert!(lookup.is_some());
-        assert_eq!(lookup.unwrap().status, smith_protocol::ExecutionStatus::Timeout);
+        assert_eq!(
+            lookup.unwrap().status,
+            smith_protocol::ExecutionStatus::Timeout
+        );
     }
 
     #[tokio::test]
@@ -948,14 +1015,29 @@ mod tests {
         let store = IdempotencyStore::new(temp_dir.path()).await.unwrap();
 
         let intent_id = Uuid::new_v4();
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
 
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Killed);
-        store.record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result).await.unwrap();
+        let result = create_test_intent_result(
+            &intent_id.to_string(),
+            smith_protocol::ExecutionStatus::Killed,
+        );
+        store
+            .record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
 
-        let lookup = store.lookup(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        let lookup = store
+            .lookup(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         assert!(lookup.is_some());
-        assert_eq!(lookup.unwrap().status, smith_protocol::ExecutionStatus::Killed);
+        assert_eq!(
+            lookup.unwrap().status,
+            smith_protocol::ExecutionStatus::Killed
+        );
     }
 
     #[tokio::test]
@@ -964,10 +1046,17 @@ mod tests {
         let store = IdempotencyStore::new(temp_dir.path()).await.unwrap();
 
         let intent_id = Uuid::new_v4();
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
 
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
-        store.record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result).await.unwrap();
+        let result =
+            create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
+        store
+            .record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
 
         // Now intent should be processed
         assert!(store.is_processed(&intent_id.to_string()).await.unwrap());
@@ -979,7 +1068,10 @@ mod tests {
         let store = IdempotencyStore::new(temp_dir.path()).await.unwrap();
 
         let intent_id = Uuid::new_v4();
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
 
         // Still running, should not be processed
         assert!(!store.is_processed(&intent_id.to_string()).await.unwrap());
@@ -1003,11 +1095,13 @@ mod tests {
         store.mark_processing(&intent_id).await.unwrap();
 
         // Should have a running record
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM runs WHERE intent_id = ? AND status = 'running'")
-            .bind(&intent_id)
-            .fetch_one(&store.pool)
-            .await
-            .unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM runs WHERE intent_id = ? AND status = 'running'",
+        )
+        .bind(&intent_id)
+        .fetch_one(&store.pool)
+        .await
+        .unwrap();
         assert_eq!(count, 1);
     }
 
@@ -1017,10 +1111,17 @@ mod tests {
         let store = IdempotencyStore::new(temp_dir.path()).await.unwrap();
 
         let intent_id = Uuid::new_v4();
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
 
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
-        store.record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result).await.unwrap();
+        let result =
+            create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
+        store
+            .record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
 
         let cached = store.get_result(&intent_id.to_string()).await.unwrap();
         assert!(cached.is_some());
@@ -1057,12 +1158,22 @@ mod tests {
         // Add some runs
         let intent1 = Uuid::new_v4();
         let intent2 = Uuid::new_v4();
-        store.record_start(&intent1, 1, "runner-v1", "cap-v1").await.unwrap();
-        store.record_start(&intent2, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent1, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
+        store
+            .record_start(&intent2, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
 
         // Complete one
-        let result = create_test_intent_result(&intent1.to_string(), smith_protocol::ExecutionStatus::Ok);
-        store.record_completion(&intent1, 1, "runner-v1", "cap-v1", &result).await.unwrap();
+        let result =
+            create_test_intent_result(&intent1.to_string(), smith_protocol::ExecutionStatus::Ok);
+        store
+            .record_completion(&intent1, 1, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
 
         // Add some nonces
         store.record_nonce("nonce1").await.unwrap();
@@ -1082,7 +1193,10 @@ mod tests {
 
         // Add a run and a nonce
         let intent = Uuid::new_v4();
-        store.record_start(&intent, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         store.record_nonce("test-nonce").await.unwrap();
 
         // Small delay to ensure records are "older" than cutoff
@@ -1107,7 +1221,10 @@ mod tests {
 
         // Add a run and a nonce
         let intent = Uuid::new_v4();
-        store.record_start(&intent, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         store.record_nonce("test-nonce").await.unwrap();
 
         // Cleanup with 24 hours should keep recent records
@@ -1126,7 +1243,10 @@ mod tests {
 
         // Add some data
         let intent = Uuid::new_v4();
-        store.record_start(&intent, 1, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         store.record_nonce("test-nonce").await.unwrap();
 
         // Maintenance should succeed
@@ -1156,23 +1276,48 @@ mod tests {
         let intent_id = Uuid::new_v4();
 
         // Record multiple sequences
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
-        store.record_start(&intent_id, 2, "runner-v1", "cap-v1").await.unwrap();
-        store.record_start(&intent_id, 3, "runner-v1", "cap-v1").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
+        store
+            .record_start(&intent_id, 2, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
+        store
+            .record_start(&intent_id, 3, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
 
         // Complete seq 1 and 3, leave 2 running
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
-        store.record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result).await.unwrap();
-        store.record_completion(&intent_id, 3, "runner-v1", "cap-v1", &result).await.unwrap();
+        let result =
+            create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
+        store
+            .record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
+        store
+            .record_completion(&intent_id, 3, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
 
         // Lookup should find completed sequences
-        let lookup1 = store.lookup(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        let lookup1 = store
+            .lookup(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         assert!(lookup1.is_some());
 
-        let lookup2 = store.lookup(&intent_id, 2, "runner-v1", "cap-v1").await.unwrap();
+        let lookup2 = store
+            .lookup(&intent_id, 2, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         assert!(lookup2.is_none()); // Still running
 
-        let lookup3 = store.lookup(&intent_id, 3, "runner-v1", "cap-v1").await.unwrap();
+        let lookup3 = store
+            .lookup(&intent_id, 3, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         assert!(lookup3.is_some());
     }
 
@@ -1184,22 +1329,44 @@ mod tests {
         let intent_id = Uuid::new_v4();
 
         // Record with different digests
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
-        store.record_start(&intent_id, 1, "runner-v2", "cap-v1").await.unwrap();
-        store.record_start(&intent_id, 1, "runner-v1", "cap-v2").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v2", "cap-v1")
+            .await
+            .unwrap();
+        store
+            .record_start(&intent_id, 1, "runner-v1", "cap-v2")
+            .await
+            .unwrap();
 
         // Complete only one combination
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
-        store.record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result).await.unwrap();
+        let result =
+            create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
+        store
+            .record_completion(&intent_id, 1, "runner-v1", "cap-v1", &result)
+            .await
+            .unwrap();
 
         // Lookup should find only the completed combination
-        let lookup1 = store.lookup(&intent_id, 1, "runner-v1", "cap-v1").await.unwrap();
+        let lookup1 = store
+            .lookup(&intent_id, 1, "runner-v1", "cap-v1")
+            .await
+            .unwrap();
         assert!(lookup1.is_some());
 
-        let lookup2 = store.lookup(&intent_id, 1, "runner-v2", "cap-v1").await.unwrap();
+        let lookup2 = store
+            .lookup(&intent_id, 1, "runner-v2", "cap-v1")
+            .await
+            .unwrap();
         assert!(lookup2.is_none()); // Still running
 
-        let lookup3 = store.lookup(&intent_id, 1, "runner-v1", "cap-v2").await.unwrap();
+        let lookup3 = store
+            .lookup(&intent_id, 1, "runner-v1", "cap-v2")
+            .await
+            .unwrap();
         assert!(lookup3.is_none()); // Still running
     }
 
@@ -1359,10 +1526,17 @@ mod tests {
         let store = IdempotencyStore::new(temp_dir.path()).await.unwrap();
 
         let intent_id = Uuid::new_v4();
-        store.record_start(&intent_id, 1, "runner", "cap").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner", "cap")
+            .await
+            .unwrap();
 
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
-        store.record_completion(&intent_id, 1, "runner", "cap", &result).await.unwrap();
+        let result =
+            create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
+        store
+            .record_completion(&intent_id, 1, "runner", "cap", &result)
+            .await
+            .unwrap();
 
         let lookup = store.lookup(&intent_id, 1, "runner", "cap").await.unwrap();
         assert!(lookup.is_some());
@@ -1377,10 +1551,17 @@ mod tests {
         let store = IdempotencyStore::new(temp_dir.path()).await.unwrap();
 
         let intent_id = Uuid::new_v4();
-        store.record_start(&intent_id, 1, "runner", "cap").await.unwrap();
+        store
+            .record_start(&intent_id, 1, "runner", "cap")
+            .await
+            .unwrap();
 
-        let result = create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
-        store.record_completion(&intent_id, 1, "runner", "cap", &result).await.unwrap();
+        let result =
+            create_test_intent_result(&intent_id.to_string(), smith_protocol::ExecutionStatus::Ok);
+        store
+            .record_completion(&intent_id, 1, "runner", "cap", &result)
+            .await
+            .unwrap();
 
         let lookup = store.lookup(&intent_id, 1, "runner", "cap").await.unwrap();
         assert!(lookup.is_some());
@@ -1492,9 +1673,11 @@ mod tests {
             mock.should_fail_get_result.store(false, Ordering::SeqCst);
 
             // Test mark_processing failure
-            mock.should_fail_mark_processing.store(true, Ordering::SeqCst);
+            mock.should_fail_mark_processing
+                .store(true, Ordering::SeqCst);
             assert!(mock.mark_processing("intent-1").await.is_err());
-            mock.should_fail_mark_processing.store(false, Ordering::SeqCst);
+            mock.should_fail_mark_processing
+                .store(false, Ordering::SeqCst);
 
             // Test store_result failure
             mock.should_fail_store_result.store(true, Ordering::SeqCst);

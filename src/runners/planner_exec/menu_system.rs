@@ -1470,7 +1470,10 @@ mod tests {
             auto_suggestions: false,
             max_menu_options: 5,
             ui_style: UiStyle::Web,
-            intervention_strategies: vec![InterventionStrategy::Continue, InterventionStrategy::Stop],
+            intervention_strategies: vec![
+                InterventionStrategy::Continue,
+                InterventionStrategy::Stop,
+            ],
         };
         let menu_system = MenuSystem::with_config(config.clone()).unwrap();
         assert_eq!(menu_system.config.default_timeout_s, 120);
@@ -1808,8 +1811,14 @@ mod tests {
             .any(|s| s.title.contains("Memory") || s.description.contains("memory")));
     }
 
-    fn create_test_action_result(action_id: &str, error_code: Option<&str>) -> super::super::schemas::ActionResult {
-        use super::super::schemas::{ActionResult, ActionStatus, ActionError, ActionMetadata, ResourceUsage, ExecutionEnvironment};
+    fn create_test_action_result(
+        action_id: &str,
+        error_code: Option<&str>,
+    ) -> super::super::schemas::ActionResult {
+        use super::super::schemas::{
+            ActionError, ActionMetadata, ActionResult, ActionStatus, ExecutionEnvironment,
+            ResourceUsage,
+        };
 
         ActionResult {
             action_id: action_id.to_string(),
@@ -1890,7 +1899,8 @@ mod tests {
         let mut menu_system = MenuSystem::with_config(MenuSystemConfig {
             ui_style: UiStyle::Terminal,
             ..MenuSystemConfig::default()
-        }).unwrap();
+        })
+        .unwrap();
 
         let session = MenuSession {
             session_id: "test".to_string(),
@@ -1923,7 +1933,8 @@ mod tests {
         let mut menu_system = MenuSystem::with_config(MenuSystemConfig {
             ui_style: UiStyle::Web,
             ..MenuSystemConfig::default()
-        }).unwrap();
+        })
+        .unwrap();
 
         let session = MenuSession {
             session_id: "test".to_string(),
@@ -1951,7 +1962,8 @@ mod tests {
         let mut menu_system = MenuSystem::with_config(MenuSystemConfig {
             ui_style: UiStyle::Api,
             ..MenuSystemConfig::default()
-        }).unwrap();
+        })
+        .unwrap();
 
         let session = MenuSession {
             session_id: "test".to_string(),

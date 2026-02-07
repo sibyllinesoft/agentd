@@ -513,7 +513,7 @@ mod tests {
         let runner = HttpFetchRunner::new();
         // Invalid regex pattern should be skipped (with warning)
         let patterns = vec![
-            "[invalid(regex".to_string(), // Invalid regex
+            "[invalid(regex".to_string(),                  // Invalid regex
             "^https://api\\.example\\.com/.*".to_string(), // Valid pattern
         ];
 
@@ -669,8 +669,11 @@ mod tests {
         for header_name in sensitive_headers {
             let mut headers = HashMap::new();
             headers.insert(header_name.to_string(), "sensitive-value".to_string());
-            assert!(runner.validate_headers(&headers).is_err(),
-                "Header '{}' should be forbidden", header_name);
+            assert!(
+                runner.validate_headers(&headers).is_err(),
+                "Header '{}' should be forbidden",
+                header_name
+            );
         }
     }
 

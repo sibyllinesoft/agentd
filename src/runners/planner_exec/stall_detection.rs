@@ -1851,7 +1851,10 @@ mod tests {
             resolution_effectiveness: 0.9,
         });
 
-        assert_eq!(detector.get_most_common_stall_type(), Some(StallType::TimeoutStall));
+        assert_eq!(
+            detector.get_most_common_stall_type(),
+            Some(StallType::TimeoutStall)
+        );
     }
 
     // ==================== Cyclical Behavior Detection Tests ====================
@@ -1972,7 +1975,10 @@ mod tests {
         assert!(result.is_some());
         let (issue, intervention, _) = result.unwrap();
         assert_eq!(issue.issue_type, "RESOURCE_STALL");
-        assert_eq!(intervention.intervention_type, InterventionType::ReduceResources);
+        assert_eq!(
+            intervention.intervention_type,
+            InterventionType::ReduceResources
+        );
     }
 
     // ==================== Record Progress Tests ====================

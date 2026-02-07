@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
 use agentd::runners::shell_exec::ShellExecRunner;
 use agentd::runners::{create_exec_context, MemoryOutputSink, Scope, SessionContext};
 use agentd::vm::{MicroVmManager, VmPoolRuntimeConfig};
 use agentd::{ExecutionLimits, Runner};
+use anyhow::Result;
 use serde_json::json;
 use smith_config::executor::VmPoolConfig;
 use tempfile::TempDir;

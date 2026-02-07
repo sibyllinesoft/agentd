@@ -1372,7 +1372,10 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         assert!(json.contains("max_planning_iterations"));
         let parsed: OracleConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.max_planning_iterations, config.max_planning_iterations);
+        assert_eq!(
+            parsed.max_planning_iterations,
+            config.max_planning_iterations
+        );
     }
 
     #[test]
@@ -1473,7 +1476,10 @@ mod tests {
 
         assert_eq!(oracle.assess_goal_complexity("hi"), GoalComplexity::Simple);
         assert_eq!(oracle.assess_goal_complexity("x"), GoalComplexity::Simple);
-        assert_eq!(oracle.assess_goal_complexity("read"), GoalComplexity::Simple);
+        assert_eq!(
+            oracle.assess_goal_complexity("read"),
+            GoalComplexity::Simple
+        );
     }
 
     #[tokio::test]
@@ -1481,9 +1487,18 @@ mod tests {
         let ctx = create_test_context();
         let oracle = Oracle::new(&ctx).unwrap();
 
-        assert_eq!(oracle.assess_goal_complexity("analyze"), GoalComplexity::Medium);
-        assert_eq!(oracle.assess_goal_complexity("optimize"), GoalComplexity::Medium);
-        assert_eq!(oracle.assess_goal_complexity("research"), GoalComplexity::Medium);
+        assert_eq!(
+            oracle.assess_goal_complexity("analyze"),
+            GoalComplexity::Medium
+        );
+        assert_eq!(
+            oracle.assess_goal_complexity("optimize"),
+            GoalComplexity::Medium
+        );
+        assert_eq!(
+            oracle.assess_goal_complexity("research"),
+            GoalComplexity::Medium
+        );
     }
 
     #[tokio::test]
@@ -1492,7 +1507,10 @@ mod tests {
         let oracle = Oracle::new(&ctx).unwrap();
 
         let very_long_goal = "This is a very long goal with many many many words that should indicate a complex task with lots of steps and requirements and dependencies and things to do over a long period of time";
-        assert_eq!(oracle.assess_goal_complexity(very_long_goal), GoalComplexity::VeryComplex);
+        assert_eq!(
+            oracle.assess_goal_complexity(very_long_goal),
+            GoalComplexity::VeryComplex
+        );
     }
 
     #[tokio::test]
@@ -1509,7 +1527,9 @@ mod tests {
         let ctx = create_test_context();
         let oracle = Oracle::new(&ctx).unwrap();
 
-        let domains = oracle.identify_domains("read file, http api request, analyze research, security secure, performance optimize");
+        let domains = oracle.identify_domains(
+            "read file, http api request, analyze research, security secure, performance optimize",
+        );
         assert!(domains.contains(&"filesystem".to_string()));
         assert!(domains.contains(&"network".to_string()));
         assert!(domains.contains(&"analysis".to_string()));
@@ -1586,7 +1606,10 @@ mod tests {
         let oracle = Oracle::new(&ctx).unwrap();
 
         let estimate = oracle.estimate_effort("analyze the entire codebase and provide comprehensive recommendations for all components");
-        assert!(estimate.estimated_resources == ResourceEstimate::High || estimate.estimated_resources == ResourceEstimate::VeryHigh);
+        assert!(
+            estimate.estimated_resources == ResourceEstimate::High
+                || estimate.estimated_resources == ResourceEstimate::VeryHigh
+        );
     }
 
     #[tokio::test]
@@ -1594,7 +1617,8 @@ mod tests {
         let config = OracleConfig::default();
         let research = DeepResearch::new(&config).unwrap();
 
-        let keywords = research.extract_keywords("analyze and read the file, then optimize performance");
+        let keywords =
+            research.extract_keywords("analyze and read the file, then optimize performance");
         assert!(keywords.contains(&"analyze".to_string()));
         assert!(keywords.contains(&"read".to_string()));
         assert!(keywords.contains(&"optimize".to_string()));
@@ -1621,9 +1645,24 @@ mod tests {
 
         // Multiple findings
         let multiple_findings = vec![
-            ResearchFinding { title: "Test1".to_string(), description: "Test".to_string(), evidence: vec![], relevance: 0.9 },
-            ResearchFinding { title: "Test2".to_string(), description: "Test".to_string(), evidence: vec![], relevance: 0.8 },
-            ResearchFinding { title: "Test3".to_string(), description: "Test".to_string(), evidence: vec![], relevance: 0.7 },
+            ResearchFinding {
+                title: "Test1".to_string(),
+                description: "Test".to_string(),
+                evidence: vec![],
+                relevance: 0.9,
+            },
+            ResearchFinding {
+                title: "Test2".to_string(),
+                description: "Test".to_string(),
+                evidence: vec![],
+                relevance: 0.8,
+            },
+            ResearchFinding {
+                title: "Test3".to_string(),
+                description: "Test".to_string(),
+                evidence: vec![],
+                relevance: 0.7,
+            },
         ];
         let multi_confidence = research.calculate_confidence(&multiple_findings);
         assert!(multi_confidence > single_confidence);
@@ -1671,8 +1710,20 @@ mod tests {
         let committee = PlanningCommittee::new(&config).unwrap();
 
         let reviews = vec![
-            MemberReview { member_name: "A".to_string(), score: 1.0, weight: 2.0, recommendations: vec![], concerns: vec![] },
-            MemberReview { member_name: "B".to_string(), score: 0.5, weight: 1.0, recommendations: vec![], concerns: vec![] },
+            MemberReview {
+                member_name: "A".to_string(),
+                score: 1.0,
+                weight: 2.0,
+                recommendations: vec![],
+                concerns: vec![],
+            },
+            MemberReview {
+                member_name: "B".to_string(),
+                score: 0.5,
+                weight: 1.0,
+                recommendations: vec![],
+                concerns: vec![],
+            },
         ];
 
         let consensus = committee.calculate_consensus(&reviews);
@@ -1686,16 +1737,20 @@ mod tests {
         let committee = PlanningCommittee::new(&config).unwrap();
 
         // All research actions should have high security score
-        let safe_actions = vec![
-            WorkflowAction::new(ActionType::Research("research.v1".to_string()), serde_json::json!({}), "Research".to_string()),
-        ];
+        let safe_actions = vec![WorkflowAction::new(
+            ActionType::Research("research.v1".to_string()),
+            serde_json::json!({}),
+            "Research".to_string(),
+        )];
         let safe_score = committee.evaluate_security_aspects(&safe_actions);
         assert!(safe_score > 0.9);
 
         // Shell actions should have lower security score
-        let risky_actions = vec![
-            WorkflowAction::new(ActionType::Shell("shell.exec.v1".to_string()), serde_json::json!({}), "Shell".to_string()),
-        ];
+        let risky_actions = vec![WorkflowAction::new(
+            ActionType::Shell("shell.exec.v1".to_string()),
+            serde_json::json!({}),
+            "Shell".to_string(),
+        )];
         let risky_score = committee.evaluate_security_aspects(&risky_actions);
         assert!(risky_score < safe_score);
     }
@@ -1712,9 +1767,11 @@ mod tests {
             weight: 1.0,
         };
 
-        let shell_actions = vec![
-            WorkflowAction::new(ActionType::Shell("shell.exec.v1".to_string()), serde_json::json!({}), "Shell".to_string()),
-        ];
+        let shell_actions = vec![WorkflowAction::new(
+            ActionType::Shell("shell.exec.v1".to_string()),
+            serde_json::json!({}),
+            "Shell".to_string(),
+        )];
 
         let concerns = committee.identify_member_concerns(&security_member, &shell_actions);
         assert!(!concerns.is_empty());
@@ -1733,9 +1790,15 @@ mod tests {
             weight: 1.0,
         };
 
-        let many_actions: Vec<_> = (0..35).map(|i| {
-            WorkflowAction::new(ActionType::Research(format!("research.{}", i)), serde_json::json!({}), "Action".to_string())
-        }).collect();
+        let many_actions: Vec<_> = (0..35)
+            .map(|i| {
+                WorkflowAction::new(
+                    ActionType::Research(format!("research.{}", i)),
+                    serde_json::json!({}),
+                    "Action".to_string(),
+                )
+            })
+            .collect();
 
         let concerns = committee.identify_member_concerns(&perf_member, &many_actions);
         assert!(!concerns.is_empty());
@@ -1754,7 +1817,11 @@ mod tests {
             weight: 1.0,
         };
 
-        let mut action_with_deps = WorkflowAction::new(ActionType::Research("research.v1".to_string()), serde_json::json!({}), "Action".to_string());
+        let mut action_with_deps = WorkflowAction::new(
+            ActionType::Research("research.v1".to_string()),
+            serde_json::json!({}),
+            "Action".to_string(),
+        );
         action_with_deps.dependencies = vec!["a".to_string(), "b".to_string(), "c".to_string()];
 
         let concerns = committee.identify_member_concerns(&risk_member, &[action_with_deps]);
@@ -1773,7 +1840,10 @@ mod tests {
             .unwrap();
 
         assert!(!result.actions.is_empty());
-        assert!(result.actions.iter().any(|a| matches!(a.action_type, ActionType::Http(_))));
+        assert!(result
+            .actions
+            .iter()
+            .any(|a| matches!(a.action_type, ActionType::Http(_))));
     }
 
     #[tokio::test]
@@ -1811,9 +1881,15 @@ mod tests {
         let ctx = create_test_context();
         let oracle = Oracle::new(&ctx).unwrap();
 
-        let many_actions: Vec<_> = (0..25).map(|i| {
-            WorkflowAction::new(ActionType::Research(format!("research.{}", i)), serde_json::json!({}), "Action".to_string())
-        }).collect();
+        let many_actions: Vec<_> = (0..25)
+            .map(|i| {
+                WorkflowAction::new(
+                    ActionType::Research(format!("research.{}", i)),
+                    serde_json::json!({}),
+                    "Action".to_string(),
+                )
+            })
+            .collect();
 
         let analysis = GoalAnalysis {
             original_goal: "test".to_string(),
@@ -1855,7 +1931,10 @@ mod tests {
             required_capabilities: vec![],
         };
 
-        let criteria = oracle.define_success_criteria("analyze data", &analysis).await.unwrap();
+        let criteria = oracle
+            .define_success_criteria("analyze data", &analysis)
+            .await
+            .unwrap();
         assert!(criteria.iter().any(|c| c.contains("actionable")));
     }
 
@@ -1879,7 +1958,10 @@ mod tests {
             required_capabilities: vec![],
         };
 
-        let criteria = oracle.define_success_criteria("read file", &analysis).await.unwrap();
+        let criteria = oracle
+            .define_success_criteria("read file", &analysis)
+            .await
+            .unwrap();
         assert!(criteria.iter().any(|c| c.contains("retrieved")));
     }
 
@@ -1903,7 +1985,10 @@ mod tests {
             required_capabilities: vec![],
         };
 
-        let criteria = oracle.define_success_criteria("secure endpoint", &analysis).await.unwrap();
+        let criteria = oracle
+            .define_success_criteria("secure endpoint", &analysis)
+            .await
+            .unwrap();
         assert!(criteria.iter().any(|c| c.contains("Security")));
     }
 
@@ -1951,7 +2036,10 @@ mod tests {
         state_machine.failed_actions.push(failed_result);
 
         let ctx = create_test_context();
-        let result = research.conduct_research("test goal", &state_machine, &ctx).await.unwrap();
+        let result = research
+            .conduct_research("test goal", &state_machine, &ctx)
+            .await
+            .unwrap();
 
         // Should have recommendation about failed actions
         assert!(result.recommendations.iter().any(|r| r.contains("failed")));
@@ -1978,7 +2066,10 @@ mod tests {
         state_machine.total_resource_usage.cpu_ms = 15000; // High CPU
 
         let ctx = create_test_context();
-        let result = research.conduct_research("test goal", &state_machine, &ctx).await.unwrap();
+        let result = research
+            .conduct_research("test goal", &state_machine, &ctx)
+            .await
+            .unwrap();
 
         // Should have recommendation about CPU
         assert!(result.recommendations.iter().any(|r| r.contains("CPU")));
@@ -2003,8 +2094,12 @@ mod tests {
 
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
         // Transition through valid state sequence: Initializing -> Planning -> Executing
-        state_machine.transition_to(crate::runners::planner_exec::state_machine::WorkflowState::Planning).unwrap();
-        state_machine.transition_to(crate::runners::planner_exec::state_machine::WorkflowState::Executing).unwrap();
+        state_machine
+            .transition_to(crate::runners::planner_exec::state_machine::WorkflowState::Planning)
+            .unwrap();
+        state_machine
+            .transition_to(crate::runners::planner_exec::state_machine::WorkflowState::Executing)
+            .unwrap();
 
         // Add many actions to queue
         for i in 0..15 {
@@ -2017,9 +2112,15 @@ mod tests {
         }
 
         let ctx = create_test_context();
-        let result = research.conduct_research("test goal", &state_machine, &ctx).await.unwrap();
+        let result = research
+            .conduct_research("test goal", &state_machine, &ctx)
+            .await
+            .unwrap();
 
         // Should have recommendation about breaking down queue
-        assert!(result.recommendations.iter().any(|r| r.contains("batch") || r.contains("breaking")));
+        assert!(result
+            .recommendations
+            .iter()
+            .any(|r| r.contains("batch") || r.contains("breaking")));
     }
 }

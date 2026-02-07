@@ -1047,14 +1047,20 @@ mod tests {
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
         // Invalid: Initializing -> Completed
-        assert!(state_machine.transition_to(WorkflowState::Completed).is_err());
+        assert!(state_machine
+            .transition_to(WorkflowState::Completed)
+            .is_err());
 
         // Invalid: Initializing -> Executing (must go through Planning)
-        let mut state_machine2 = StateMachine::new("test2".to_string(), create_test_params()).unwrap();
-        assert!(state_machine2.transition_to(WorkflowState::Executing).is_err());
+        let mut state_machine2 =
+            StateMachine::new("test2".to_string(), create_test_params()).unwrap();
+        assert!(state_machine2
+            .transition_to(WorkflowState::Executing)
+            .is_err());
 
         // Invalid: Initializing -> Paused
-        let mut state_machine3 = StateMachine::new("test3".to_string(), create_test_params()).unwrap();
+        let mut state_machine3 =
+            StateMachine::new("test3".to_string(), create_test_params()).unwrap();
         assert!(state_machine3.transition_to(WorkflowState::Paused).is_err());
     }
 
@@ -1064,12 +1070,20 @@ mod tests {
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
         // Get to Failed state
-        state_machine.transition_to(WorkflowState::Failed("error".to_string())).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Failed("error".to_string()))
+            .unwrap();
 
         // Cannot transition from Failed
-        assert!(state_machine.transition_to(WorkflowState::Planning).is_err());
-        assert!(state_machine.transition_to(WorkflowState::Executing).is_err());
-        assert!(state_machine.transition_to(WorkflowState::Completed).is_err());
+        assert!(state_machine
+            .transition_to(WorkflowState::Planning)
+            .is_err());
+        assert!(state_machine
+            .transition_to(WorkflowState::Executing)
+            .is_err());
+        assert!(state_machine
+            .transition_to(WorkflowState::Completed)
+            .is_err());
     }
 
     #[test]
@@ -1089,7 +1103,9 @@ mod tests {
             recommendations: vec!["recommendation 1".to_string()],
         };
 
-        assert!(state_machine.set_research_result(research_result.clone()).is_ok());
+        assert!(state_machine
+            .set_research_result(research_result.clone())
+            .is_ok());
         assert!(state_machine.research_result.is_some());
         assert_eq!(state_machine.research_result.unwrap().findings.len(), 1);
     }
@@ -1100,7 +1116,9 @@ mod tests {
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
         // Get to Paused state
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
         state_machine.transition_to(WorkflowState::Paused).unwrap();
 
         let action = super::super::schemas::UserAction {
@@ -1118,8 +1136,12 @@ mod tests {
         let params = create_test_params();
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
-        state_machine.transition_to(WorkflowState::Executing).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
+        state_machine
+            .transition_to(WorkflowState::Executing)
+            .unwrap();
 
         let action = super::super::schemas::UserAction {
             action_type: super::super::schemas::UserActionType::Pause,
@@ -1136,8 +1158,12 @@ mod tests {
         let params = create_test_params();
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
-        state_machine.transition_to(WorkflowState::Executing).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
+        state_machine
+            .transition_to(WorkflowState::Executing)
+            .unwrap();
 
         let action = super::super::schemas::UserAction {
             action_type: super::super::schemas::UserActionType::Stop,
@@ -1146,7 +1172,10 @@ mod tests {
         };
 
         state_machine.apply_user_action(action).unwrap();
-        assert!(matches!(state_machine.current_state, WorkflowState::Failed(_)));
+        assert!(matches!(
+            state_machine.current_state,
+            WorkflowState::Failed(_)
+        ));
     }
 
     #[test]
@@ -1161,7 +1190,10 @@ mod tests {
         };
 
         state_machine.apply_user_action(action).unwrap();
-        assert!(state_machine.lessons_learned.iter().any(|l| l.contains("modified")));
+        assert!(state_machine
+            .lessons_learned
+            .iter()
+            .any(|l| l.contains("modified")));
     }
 
     #[test]
@@ -1221,7 +1253,10 @@ mod tests {
         };
 
         state_machine.apply_user_action(action).unwrap();
-        assert!(state_machine.lessons_learned.iter().any(|l| l.contains("overrode")));
+        assert!(state_machine
+            .lessons_learned
+            .iter()
+            .any(|l| l.contains("overrode")));
     }
 
     #[test]
@@ -1229,8 +1264,12 @@ mod tests {
         let params = create_test_params();
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
-        state_machine.transition_to(WorkflowState::Executing).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
+        state_machine
+            .transition_to(WorkflowState::Executing)
+            .unwrap();
 
         let action = super::super::schemas::UserAction {
             action_type: super::super::schemas::UserActionType::Escalate,
@@ -1240,7 +1279,10 @@ mod tests {
 
         state_machine.apply_user_action(action).unwrap();
         assert_eq!(state_machine.current_state, WorkflowState::Paused);
-        assert!(state_machine.lessons_learned.iter().any(|l| l.contains("escalated")));
+        assert!(state_machine
+            .lessons_learned
+            .iter()
+            .any(|l| l.contains("escalated")));
     }
 
     #[test]
@@ -1248,9 +1290,15 @@ mod tests {
         let params = create_test_params();
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
-        state_machine.transition_to(WorkflowState::Executing).unwrap();
-        state_machine.transition_to(WorkflowState::Completed).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
+        state_machine
+            .transition_to(WorkflowState::Executing)
+            .unwrap();
+        state_machine
+            .transition_to(WorkflowState::Completed)
+            .unwrap();
 
         let summary = state_machine.get_execution_summary().unwrap();
 
@@ -1263,7 +1311,9 @@ mod tests {
         let params = create_test_params();
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
-        state_machine.transition_to(WorkflowState::Failed("error".to_string())).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Failed("error".to_string()))
+            .unwrap();
 
         let summary = state_machine.get_execution_summary().unwrap();
         assert_eq!(summary.status, WorkflowStatus::Failed);
@@ -1331,7 +1381,9 @@ mod tests {
             json!({"path": "/test"}),
             "Test".to_string(),
         );
-        state_machine.executing_actions.insert(action.id.clone(), action.clone());
+        state_machine
+            .executing_actions
+            .insert(action.id.clone(), action.clone());
 
         let current = state_machine.current_action();
         assert!(current.is_some());
@@ -1345,7 +1397,9 @@ mod tests {
 
         assert!(state_machine.get_execution_history().is_empty());
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
 
         let history = state_machine.get_execution_history();
         assert_eq!(history.len(), 1);
@@ -1365,7 +1419,9 @@ mod tests {
         let params = create_test_params();
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
 
         let time = state_machine.time_since_last_transition();
         assert!(time.num_milliseconds() >= 0);
@@ -1383,7 +1439,9 @@ mod tests {
             "Test".to_string(),
         );
         let action_id = action.id.clone();
-        state_machine.executing_actions.insert(action_id.clone(), action);
+        state_machine
+            .executing_actions
+            .insert(action_id.clone(), action);
 
         // Create failed result
         let result = ActionResult {
@@ -1411,7 +1469,10 @@ mod tests {
 
         state_machine.record_execution_result(result).unwrap();
         assert_eq!(state_machine.failed_actions.len(), 1);
-        assert!(state_machine.lessons_learned.iter().any(|l| l.contains("failed")));
+        assert!(state_machine
+            .lessons_learned
+            .iter()
+            .any(|l| l.contains("failed")));
     }
 
     #[test]
@@ -1427,7 +1488,9 @@ mod tests {
         );
         action.retry_policy.max_retries = 3;
         let action_id = action.id.clone();
-        state_machine.executing_actions.insert(action_id.clone(), action.clone());
+        state_machine
+            .executing_actions
+            .insert(action_id.clone(), action.clone());
 
         // Create retryable failed result
         let result = ActionResult {
@@ -1568,7 +1631,9 @@ mod tests {
         let params = create_test_params();
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
 
         let history = state_machine.get_execution_history();
         assert_eq!(history[0].reason, "Starting planning phase");
@@ -1579,9 +1644,13 @@ mod tests {
         let params = create_test_params();
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
         state_machine.transition_to(WorkflowState::Paused).unwrap();
-        state_machine.transition_to(WorkflowState::Executing).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Executing)
+            .unwrap();
 
         assert_eq!(state_machine.current_state, WorkflowState::Executing);
     }
@@ -1591,9 +1660,13 @@ mod tests {
         let params = create_test_params();
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
         state_machine.transition_to(WorkflowState::Paused).unwrap();
-        state_machine.transition_to(WorkflowState::Completed).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Completed)
+            .unwrap();
 
         assert_eq!(state_machine.current_state, WorkflowState::Completed);
     }
@@ -1603,10 +1676,16 @@ mod tests {
         let params = create_test_params();
         let mut state_machine = StateMachine::new("test".to_string(), params).unwrap();
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
-        state_machine.transition_to(WorkflowState::Executing).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
+        state_machine
+            .transition_to(WorkflowState::Executing)
+            .unwrap();
         // Re-planning is allowed
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
 
         assert_eq!(state_machine.current_state, WorkflowState::Planning);
     }
@@ -1618,13 +1697,19 @@ mod tests {
 
         assert_eq!(state_machine.metadata.phase, ExecutionPhase::Initialization);
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
         assert_eq!(state_machine.metadata.phase, ExecutionPhase::Planning);
 
-        state_machine.transition_to(WorkflowState::Executing).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Executing)
+            .unwrap();
         assert_eq!(state_machine.metadata.phase, ExecutionPhase::Execution);
 
-        state_machine.transition_to(WorkflowState::Completed).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Completed)
+            .unwrap();
         assert_eq!(state_machine.metadata.phase, ExecutionPhase::Completion);
     }
 
@@ -1647,8 +1732,12 @@ mod tests {
         let action1_id = action1.id.clone();
         let action2_id = action2.id.clone();
 
-        state_machine.executing_actions.insert(action1_id.clone(), action1);
-        state_machine.executing_actions.insert(action2_id.clone(), action2);
+        state_machine
+            .executing_actions
+            .insert(action1_id.clone(), action1);
+        state_machine
+            .executing_actions
+            .insert(action2_id.clone(), action2);
 
         // Complete actions with resource usage
         let result1 = ActionResult {
@@ -1732,8 +1821,12 @@ mod tests {
         state_machine.action_queue.push_back(action2);
         state_machine.action_queue.push_back(action1);
 
-        state_machine.transition_to(WorkflowState::Planning).unwrap();
-        state_machine.transition_to(WorkflowState::Executing).unwrap();
+        state_machine
+            .transition_to(WorkflowState::Planning)
+            .unwrap();
+        state_machine
+            .transition_to(WorkflowState::Executing)
+            .unwrap();
 
         // Should get action1 first (no dependencies)
         let next = state_machine.get_next_action().unwrap();

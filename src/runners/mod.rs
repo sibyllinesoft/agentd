@@ -437,7 +437,11 @@ mod tests {
         let capabilities = registry.capabilities();
 
         // Should have many registered runners
-        assert!(capabilities.len() >= 10, "Expected at least 10 registered capabilities, got {}", capabilities.len());
+        assert!(
+            capabilities.len() >= 10,
+            "Expected at least 10 registered capabilities, got {}",
+            capabilities.len()
+        );
     }
 
     // ===== MemoryOutputSink Tests =====
@@ -531,7 +535,10 @@ mod tests {
         let ctx = ExecContext {
             workdir: PathBuf::from("/tmp"),
             limits: ExecutionLimits::default(),
-            scope: Scope { paths: vec![], urls: vec![] },
+            scope: Scope {
+                paths: vec![],
+                urls: vec![],
+            },
             creds: None,
             netns: None,
             trace_id: "trace-456".to_string(),
@@ -711,7 +718,10 @@ mod tests {
         let ctx = create_exec_context(
             temp_dir.path(),
             ExecutionLimits::default(),
-            Scope { paths: vec![], urls: vec![] },
+            Scope {
+                paths: vec![],
+                urls: vec![],
+            },
             "trace".to_string(),
         );
 

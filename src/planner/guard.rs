@@ -51,7 +51,7 @@ The Guard Engine implements a multi-layered security model:
 
 ## Usage
 
-```rust
+```text
 let guard = GuardEngine::new(&security_config).await?;
 
 // Validate goal

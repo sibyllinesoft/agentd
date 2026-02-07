@@ -55,7 +55,8 @@ impl Command {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        self.args.extend(args.into_iter().map(|s| s.as_ref().to_string()));
+        self.args
+            .extend(args.into_iter().map(|s| s.as_ref().to_string()));
         self
     }
 
@@ -593,8 +594,8 @@ mod tests {
             allow_writes: Some(true),
         };
 
-        let req =
-            IntentRequest::new("shell.exec.v1", serde_json::json!({})).with_constraints(constraints);
+        let req = IntentRequest::new("shell.exec.v1", serde_json::json!({}))
+            .with_constraints(constraints);
 
         assert_eq!(req.constraints.max_duration_ms, Some(5000));
         assert_eq!(req.constraints.max_output_bytes, Some(1024));
@@ -612,13 +613,9 @@ mod tests {
             labels: HashMap::new(),
         };
 
-        let req =
-            IntentRequest::new("fs.read.v1", serde_json::json!({})).with_sandbox_prefs(prefs);
+        let req = IntentRequest::new("fs.read.v1", serde_json::json!({})).with_sandbox_prefs(prefs);
 
-        assert_eq!(
-            req.sandbox_prefs.sandbox_id,
-            Some("sb-123".to_string())
-        );
+        assert_eq!(req.sandbox_prefs.sandbox_id, Some("sb-123".to_string()));
         assert!(req.sandbox_prefs.require_fresh);
     }
 
@@ -874,9 +871,7 @@ mod tests {
 
     #[test]
     fn test_command_serialization() {
-        let cmd = Command::new("ls")
-            .args(["-la"])
-            .env("PATH", "/usr/bin");
+        let cmd = Command::new("ls").args(["-la"]).env("PATH", "/usr/bin");
 
         let json = serde_json::to_string(&cmd).unwrap();
         let deserialized: Command = serde_json::from_str(&json).unwrap();

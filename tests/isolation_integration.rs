@@ -1,5 +1,5 @@
-use anyhow::Result;
 use agentd::isolation_tests::{quick_isolation_check, run_isolation_tests, IsolationTestResults};
+use anyhow::Result;
 use tokio;
 
 #[tokio::test]

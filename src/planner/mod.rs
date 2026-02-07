@@ -52,7 +52,7 @@ The planner-executor controller implements sophisticated AI workflow orchestrati
 
 ## Usage
 
-```rust
+```text
 use smith_planner::{
     PlannerExecutorController,
     WorkflowType,

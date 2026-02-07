@@ -541,7 +541,10 @@ mod tests {
         assert_eq!(ErrorCode::ReplayDetected.as_str(), "REPLAY_DETECTED");
         assert_eq!(ErrorCode::SchemaInvalid.as_str(), "SCHEMA_INVALID");
         assert_eq!(ErrorCode::PolicyDeny.as_str(), "POLICY_DENY");
-        assert_eq!(ErrorCode::ResourceNotAllowed.as_str(), "RESOURCE_NOT_ALLOWED");
+        assert_eq!(
+            ErrorCode::ResourceNotAllowed.as_str(),
+            "RESOURCE_NOT_ALLOWED"
+        );
         assert_eq!(ErrorCode::LimitsExceeded.as_str(), "LIMITS_EXCEEDED");
         assert_eq!(ErrorCode::SandboxInitFail.as_str(), "SANDBOX_INIT_FAIL");
         assert_eq!(ErrorCode::SecureExecError.as_str(), "SECURE_EXEC_ERROR");
@@ -551,17 +554,50 @@ mod tests {
 
     #[test]
     fn test_error_code_from_str() {
-        assert_eq!(ErrorCode::from_str("SIG_VERIFY_FAIL"), Some(ErrorCode::SigVerifyFail));
-        assert_eq!(ErrorCode::from_str("INTENT_EXPIRED"), Some(ErrorCode::IntentExpired));
-        assert_eq!(ErrorCode::from_str("REPLAY_DETECTED"), Some(ErrorCode::ReplayDetected));
-        assert_eq!(ErrorCode::from_str("SCHEMA_INVALID"), Some(ErrorCode::SchemaInvalid));
-        assert_eq!(ErrorCode::from_str("POLICY_DENY"), Some(ErrorCode::PolicyDeny));
-        assert_eq!(ErrorCode::from_str("RESOURCE_NOT_ALLOWED"), Some(ErrorCode::ResourceNotAllowed));
-        assert_eq!(ErrorCode::from_str("LIMITS_EXCEEDED"), Some(ErrorCode::LimitsExceeded));
-        assert_eq!(ErrorCode::from_str("SANDBOX_INIT_FAIL"), Some(ErrorCode::SandboxInitFail));
-        assert_eq!(ErrorCode::from_str("SECURE_EXEC_ERROR"), Some(ErrorCode::SecureExecError));
-        assert_eq!(ErrorCode::from_str("RUNNER_ERROR"), Some(ErrorCode::RunnerError));
-        assert_eq!(ErrorCode::from_str("RESULT_PUBLISH_FAIL"), Some(ErrorCode::ResultPublishFail));
+        assert_eq!(
+            ErrorCode::from_str("SIG_VERIFY_FAIL"),
+            Some(ErrorCode::SigVerifyFail)
+        );
+        assert_eq!(
+            ErrorCode::from_str("INTENT_EXPIRED"),
+            Some(ErrorCode::IntentExpired)
+        );
+        assert_eq!(
+            ErrorCode::from_str("REPLAY_DETECTED"),
+            Some(ErrorCode::ReplayDetected)
+        );
+        assert_eq!(
+            ErrorCode::from_str("SCHEMA_INVALID"),
+            Some(ErrorCode::SchemaInvalid)
+        );
+        assert_eq!(
+            ErrorCode::from_str("POLICY_DENY"),
+            Some(ErrorCode::PolicyDeny)
+        );
+        assert_eq!(
+            ErrorCode::from_str("RESOURCE_NOT_ALLOWED"),
+            Some(ErrorCode::ResourceNotAllowed)
+        );
+        assert_eq!(
+            ErrorCode::from_str("LIMITS_EXCEEDED"),
+            Some(ErrorCode::LimitsExceeded)
+        );
+        assert_eq!(
+            ErrorCode::from_str("SANDBOX_INIT_FAIL"),
+            Some(ErrorCode::SandboxInitFail)
+        );
+        assert_eq!(
+            ErrorCode::from_str("SECURE_EXEC_ERROR"),
+            Some(ErrorCode::SecureExecError)
+        );
+        assert_eq!(
+            ErrorCode::from_str("RUNNER_ERROR"),
+            Some(ErrorCode::RunnerError)
+        );
+        assert_eq!(
+            ErrorCode::from_str("RESULT_PUBLISH_FAIL"),
+            Some(ErrorCode::ResultPublishFail)
+        );
         assert_eq!(ErrorCode::from_str("UNKNOWN_CODE"), None);
         assert_eq!(ErrorCode::from_str(""), None);
     }
@@ -569,14 +605,20 @@ mod tests {
     #[test]
     fn test_error_code_description() {
         assert!(ErrorCode::SigVerifyFail.description().contains("signature"));
-        assert!(ErrorCode::IntentExpired.description().contains("time-to-live"));
+        assert!(ErrorCode::IntentExpired
+            .description()
+            .contains("time-to-live"));
         assert!(ErrorCode::ReplayDetected.description().contains("replay"));
         assert!(ErrorCode::SchemaInvalid.description().contains("schema"));
         assert!(ErrorCode::PolicyDeny.description().contains("denied"));
-        assert!(ErrorCode::ResourceNotAllowed.description().contains("allowlist"));
+        assert!(ErrorCode::ResourceNotAllowed
+            .description()
+            .contains("allowlist"));
         assert!(ErrorCode::LimitsExceeded.description().contains("limits"));
         assert!(ErrorCode::SandboxInitFail.description().contains("sandbox"));
-        assert!(ErrorCode::SecureExecError.description().contains("Security"));
+        assert!(ErrorCode::SecureExecError
+            .description()
+            .contains("Security"));
         assert!(ErrorCode::RunnerError.description().contains("execution"));
         assert!(ErrorCode::ResultPublishFail.description().contains("NATS"));
     }

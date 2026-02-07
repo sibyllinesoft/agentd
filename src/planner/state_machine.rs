@@ -689,10 +689,22 @@ mod tests {
         assert_eq!(config.max_retries_per_state, 3);
         assert_eq!(config.max_workflow_duration_seconds, 14400);
         assert!(config.enable_detailed_logging);
-        assert_eq!(config.state_timeouts.get(&WorkflowState::Initializing), Some(&300));
-        assert_eq!(config.state_timeouts.get(&WorkflowState::Planning), Some(&1800));
-        assert_eq!(config.state_timeouts.get(&WorkflowState::Executing), Some(&3600));
-        assert_eq!(config.state_timeouts.get(&WorkflowState::Evaluating), Some(&600));
+        assert_eq!(
+            config.state_timeouts.get(&WorkflowState::Initializing),
+            Some(&300)
+        );
+        assert_eq!(
+            config.state_timeouts.get(&WorkflowState::Planning),
+            Some(&1800)
+        );
+        assert_eq!(
+            config.state_timeouts.get(&WorkflowState::Executing),
+            Some(&3600)
+        );
+        assert_eq!(
+            config.state_timeouts.get(&WorkflowState::Evaluating),
+            Some(&600)
+        );
     }
 
     #[test]
@@ -738,7 +750,9 @@ mod tests {
     #[test]
     fn test_get_valid_transitions_terminal() {
         let sm = StateMachine::new();
-        assert!(sm.get_valid_transitions(&WorkflowState::Completed).is_empty());
+        assert!(sm
+            .get_valid_transitions(&WorkflowState::Completed)
+            .is_empty());
         assert!(sm.get_valid_transitions(&WorkflowState::Failed).is_empty());
     }
 
@@ -755,7 +769,10 @@ mod tests {
     #[test]
     fn test_workflow_type_display() {
         assert_eq!(format!("{}", WorkflowType::Simple), "Simple");
-        assert_eq!(format!("{}", WorkflowType::ResearchAndPlanning), "Research+Planning");
+        assert_eq!(
+            format!("{}", WorkflowType::ResearchAndPlanning),
+            "Research+Planning"
+        );
         assert_eq!(format!("{}", WorkflowType::ComplexOrchestration), "Complex");
     }
 
@@ -764,7 +781,10 @@ mod tests {
         let config = WorkflowType::Simple.get_recommended_config();
         assert_eq!(config.max_retries_per_state, 1);
         assert_eq!(config.max_workflow_duration_seconds, 1800);
-        assert_eq!(config.state_timeouts.get(&WorkflowState::Planning), Some(&300));
+        assert_eq!(
+            config.state_timeouts.get(&WorkflowState::Planning),
+            Some(&300)
+        );
     }
 
     #[test]
@@ -772,7 +792,10 @@ mod tests {
         let config = WorkflowType::ResearchAndPlanning.get_recommended_config();
         assert_eq!(config.max_retries_per_state, 3);
         assert_eq!(config.max_workflow_duration_seconds, 7200);
-        assert_eq!(config.state_timeouts.get(&WorkflowState::Planning), Some(&3600));
+        assert_eq!(
+            config.state_timeouts.get(&WorkflowState::Planning),
+            Some(&3600)
+        );
     }
 
     #[test]
@@ -780,8 +803,14 @@ mod tests {
         let config = WorkflowType::ComplexOrchestration.get_recommended_config();
         assert_eq!(config.max_retries_per_state, 5);
         assert_eq!(config.max_workflow_duration_seconds, 28800);
-        assert_eq!(config.state_timeouts.get(&WorkflowState::Planning), Some(&1800));
-        assert_eq!(config.state_timeouts.get(&WorkflowState::Executing), Some(&7200));
+        assert_eq!(
+            config.state_timeouts.get(&WorkflowState::Planning),
+            Some(&1800)
+        );
+        assert_eq!(
+            config.state_timeouts.get(&WorkflowState::Executing),
+            Some(&7200)
+        );
     }
 
     #[test]
@@ -818,24 +847,108 @@ mod tests {
         let sm = StateMachine::new();
 
         // Initializing transitions
-        assert!(sm.validate_transition(&WorkflowState::Initializing, &WorkflowState::Planning, &WorkflowType::Simple).valid);
-        assert!(sm.validate_transition(&WorkflowState::Initializing, &WorkflowState::Failed, &WorkflowType::Simple).valid);
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Initializing,
+                &WorkflowState::Planning,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Initializing,
+                &WorkflowState::Failed,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
 
         // Planning transitions
-        assert!(sm.validate_transition(&WorkflowState::Planning, &WorkflowState::Executing, &WorkflowType::Simple).valid);
-        assert!(sm.validate_transition(&WorkflowState::Planning, &WorkflowState::Planning, &WorkflowType::Simple).valid);
-        assert!(sm.validate_transition(&WorkflowState::Planning, &WorkflowState::Failed, &WorkflowType::Simple).valid);
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Planning,
+                &WorkflowState::Executing,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Planning,
+                &WorkflowState::Planning,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Planning,
+                &WorkflowState::Failed,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
 
         // Executing transitions
-        assert!(sm.validate_transition(&WorkflowState::Executing, &WorkflowState::Evaluating, &WorkflowType::Simple).valid);
-        assert!(sm.validate_transition(&WorkflowState::Executing, &WorkflowState::Executing, &WorkflowType::Simple).valid);
-        assert!(sm.validate_transition(&WorkflowState::Executing, &WorkflowState::Planning, &WorkflowType::Simple).valid);
-        assert!(sm.validate_transition(&WorkflowState::Executing, &WorkflowState::Failed, &WorkflowType::Simple).valid);
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Executing,
+                &WorkflowState::Evaluating,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Executing,
+                &WorkflowState::Executing,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Executing,
+                &WorkflowState::Planning,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Executing,
+                &WorkflowState::Failed,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
 
         // Evaluating transitions
-        assert!(sm.validate_transition(&WorkflowState::Evaluating, &WorkflowState::Completed, &WorkflowType::Simple).valid);
-        assert!(sm.validate_transition(&WorkflowState::Evaluating, &WorkflowState::Planning, &WorkflowType::Simple).valid);
-        assert!(sm.validate_transition(&WorkflowState::Evaluating, &WorkflowState::Failed, &WorkflowType::Simple).valid);
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Evaluating,
+                &WorkflowState::Completed,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Evaluating,
+                &WorkflowState::Planning,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
+        assert!(
+            sm.validate_transition(
+                &WorkflowState::Evaluating,
+                &WorkflowState::Failed,
+                &WorkflowType::Simple
+            )
+            .valid
+        );
     }
 
     #[test]
@@ -886,15 +999,16 @@ mod tests {
         let workflow_id = Uuid::new_v4();
 
         // Add some history
-        sm.state_history.insert(workflow_id, vec![
-            StateTransition {
+        sm.state_history.insert(
+            workflow_id,
+            vec![StateTransition {
                 from: WorkflowState::Initializing,
                 to: WorkflowState::Planning,
                 timestamp: chrono::Utc::now(),
                 reason: "Start".to_string(),
                 metadata: HashMap::new(),
-            }
-        ]);
+            }],
+        );
 
         assert!(sm.state_history.contains_key(&workflow_id));
 
@@ -921,15 +1035,16 @@ mod tests {
         assert!(sm.get_state_history(workflow_id).is_none());
 
         // Add history
-        sm.state_history.insert(workflow_id, vec![
-            StateTransition {
+        sm.state_history.insert(
+            workflow_id,
+            vec![StateTransition {
                 from: WorkflowState::Initializing,
                 to: WorkflowState::Planning,
                 timestamp: chrono::Utc::now(),
                 reason: "Test".to_string(),
                 metadata: HashMap::new(),
-            }
-        ]);
+            }],
+        );
 
         let history = sm.get_state_history(workflow_id);
         assert!(history.is_some());
@@ -957,29 +1072,32 @@ mod tests {
 
         // Add workflow history
         let now = chrono::Utc::now();
-        sm.state_history.insert(workflow_id, vec![
-            StateTransition {
-                from: WorkflowState::Initializing,
-                to: WorkflowState::Planning,
-                timestamp: now,
-                reason: "Start".to_string(),
-                metadata: HashMap::new(),
-            },
-            StateTransition {
-                from: WorkflowState::Planning,
-                to: WorkflowState::Executing,
-                timestamp: now + chrono::Duration::seconds(10),
-                reason: "Plan ready".to_string(),
-                metadata: HashMap::new(),
-            },
-            StateTransition {
-                from: WorkflowState::Executing,
-                to: WorkflowState::Completed,
-                timestamp: now + chrono::Duration::seconds(20),
-                reason: "Done".to_string(),
-                metadata: HashMap::new(),
-            },
-        ]);
+        sm.state_history.insert(
+            workflow_id,
+            vec![
+                StateTransition {
+                    from: WorkflowState::Initializing,
+                    to: WorkflowState::Planning,
+                    timestamp: now,
+                    reason: "Start".to_string(),
+                    metadata: HashMap::new(),
+                },
+                StateTransition {
+                    from: WorkflowState::Planning,
+                    to: WorkflowState::Executing,
+                    timestamp: now + chrono::Duration::seconds(10),
+                    reason: "Plan ready".to_string(),
+                    metadata: HashMap::new(),
+                },
+                StateTransition {
+                    from: WorkflowState::Executing,
+                    to: WorkflowState::Completed,
+                    timestamp: now + chrono::Duration::seconds(20),
+                    reason: "Done".to_string(),
+                    metadata: HashMap::new(),
+                },
+            ],
+        );
 
         let summary = sm.get_workflow_summary(workflow_id);
         assert!(summary.is_some());
@@ -990,8 +1108,14 @@ mod tests {
         assert!(summary.success);
         assert_eq!(summary.final_state, WorkflowState::Completed);
         assert_eq!(summary.state_visits.get(&WorkflowState::Planning), Some(&1));
-        assert_eq!(summary.state_visits.get(&WorkflowState::Executing), Some(&1));
-        assert_eq!(summary.state_visits.get(&WorkflowState::Completed), Some(&1));
+        assert_eq!(
+            summary.state_visits.get(&WorkflowState::Executing),
+            Some(&1)
+        );
+        assert_eq!(
+            summary.state_visits.get(&WorkflowState::Completed),
+            Some(&1)
+        );
     }
 
     #[test]
@@ -1000,29 +1124,32 @@ mod tests {
         let workflow_id = Uuid::new_v4();
 
         let now = chrono::Utc::now();
-        sm.state_history.insert(workflow_id, vec![
-            StateTransition {
-                from: WorkflowState::Planning,
-                to: WorkflowState::Planning,  // Retry
-                timestamp: now,
-                reason: "Retry 1".to_string(),
-                metadata: HashMap::new(),
-            },
-            StateTransition {
-                from: WorkflowState::Planning,
-                to: WorkflowState::Planning,  // Retry
-                timestamp: now + chrono::Duration::seconds(5),
-                reason: "Retry 2".to_string(),
-                metadata: HashMap::new(),
-            },
-            StateTransition {
-                from: WorkflowState::Planning,
-                to: WorkflowState::Failed,
-                timestamp: now + chrono::Duration::seconds(10),
-                reason: "Max retries".to_string(),
-                metadata: HashMap::new(),
-            },
-        ]);
+        sm.state_history.insert(
+            workflow_id,
+            vec![
+                StateTransition {
+                    from: WorkflowState::Planning,
+                    to: WorkflowState::Planning, // Retry
+                    timestamp: now,
+                    reason: "Retry 1".to_string(),
+                    metadata: HashMap::new(),
+                },
+                StateTransition {
+                    from: WorkflowState::Planning,
+                    to: WorkflowState::Planning, // Retry
+                    timestamp: now + chrono::Duration::seconds(5),
+                    reason: "Retry 2".to_string(),
+                    metadata: HashMap::new(),
+                },
+                StateTransition {
+                    from: WorkflowState::Planning,
+                    to: WorkflowState::Failed,
+                    timestamp: now + chrono::Duration::seconds(10),
+                    reason: "Max retries".to_string(),
+                    metadata: HashMap::new(),
+                },
+            ],
+        );
 
         let summary = sm.get_workflow_summary(workflow_id).unwrap();
         assert!(!summary.success);
@@ -1047,27 +1174,29 @@ mod tests {
 
         // Add active workflow
         let active_id = Uuid::new_v4();
-        sm.state_history.insert(active_id, vec![
-            StateTransition {
+        sm.state_history.insert(
+            active_id,
+            vec![StateTransition {
                 from: WorkflowState::Initializing,
                 to: WorkflowState::Planning,
                 timestamp: chrono::Utc::now(),
                 reason: "Active".to_string(),
                 metadata: HashMap::new(),
-            }
-        ]);
+            }],
+        );
 
         // Add completed workflow
         let completed_id = Uuid::new_v4();
-        sm.state_history.insert(completed_id, vec![
-            StateTransition {
+        sm.state_history.insert(
+            completed_id,
+            vec![StateTransition {
                 from: WorkflowState::Evaluating,
                 to: WorkflowState::Completed,
                 timestamp: chrono::Utc::now(),
                 reason: "Done".to_string(),
                 metadata: HashMap::new(),
-            }
-        ]);
+            }],
+        );
 
         let metrics = sm.export_metrics();
         assert_eq!(metrics.total_workflows, 2);
@@ -1087,7 +1216,9 @@ mod tests {
             "Test".to_string(),
             WorkflowType::Simple,
             HashMap::new(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         // Check metrics updated
         let metrics = sm.get_state_metrics(&WorkflowState::Initializing);
@@ -1111,7 +1242,9 @@ mod tests {
             "Error".to_string(),
             WorkflowType::Simple,
             HashMap::new(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         let metrics = sm.get_state_metrics(&WorkflowState::Planning);
         assert_eq!(metrics.unwrap().failure_count, 1);
@@ -1125,11 +1258,13 @@ mod tests {
         sm.transition(
             workflow_id,
             WorkflowState::Planning,
-            WorkflowState::Planning,  // Retry
+            WorkflowState::Planning, // Retry
             "Retry".to_string(),
             WorkflowType::Simple,
             HashMap::new(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         let metrics = sm.get_state_metrics(&WorkflowState::Planning);
         assert_eq!(metrics.unwrap().retry_count, 1);
@@ -1140,14 +1275,16 @@ mod tests {
         let mut sm = StateMachine::new();
         let workflow_id = Uuid::new_v4();
 
-        let result = sm.transition(
-            workflow_id,
-            WorkflowState::Completed,
-            WorkflowState::Planning,
-            "Invalid".to_string(),
-            WorkflowType::Simple,
-            HashMap::new(),
-        ).await;
+        let result = sm
+            .transition(
+                workflow_id,
+                WorkflowState::Completed,
+                WorkflowState::Planning,
+                "Invalid".to_string(),
+                WorkflowType::Simple,
+                HashMap::new(),
+            )
+            .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1169,15 +1306,16 @@ mod tests {
         let workflow_id = Uuid::new_v4();
 
         // Add transition to Executing
-        sm.state_history.insert(workflow_id, vec![
-            StateTransition {
+        sm.state_history.insert(
+            workflow_id,
+            vec![StateTransition {
                 from: WorkflowState::Planning,
                 to: WorkflowState::Executing,
                 timestamp: chrono::Utc::now(),
                 reason: "Test".to_string(),
                 metadata: HashMap::new(),
-            }
-        ]);
+            }],
+        );
 
         // Check timeout for Planning (wrong state)
         let timeout = sm.check_state_timeout(workflow_id, &WorkflowState::Planning);
@@ -1243,8 +1381,14 @@ mod tests {
         let parsed: StateMachineConfig = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.max_retries_per_state, config.max_retries_per_state);
-        assert_eq!(parsed.max_workflow_duration_seconds, config.max_workflow_duration_seconds);
-        assert_eq!(parsed.enable_detailed_logging, config.enable_detailed_logging);
+        assert_eq!(
+            parsed.max_workflow_duration_seconds,
+            config.max_workflow_duration_seconds
+        );
+        assert_eq!(
+            parsed.enable_detailed_logging,
+            config.enable_detailed_logging
+        );
     }
 
     #[test]
@@ -1304,7 +1448,10 @@ mod tests {
 
         assert_eq!(context.current_state, WorkflowState::Planning);
         assert_eq!(context.workflow_type, WorkflowType::ResearchAndPlanning);
-        assert_eq!(context.execution_metadata.get("key"), Some(&"value".to_string()));
+        assert_eq!(
+            context.execution_metadata.get("key"),
+            Some(&"value".to_string())
+        );
     }
 
     #[test]

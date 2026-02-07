@@ -43,7 +43,7 @@
 //!
 //! ## Usage Example
 //!
-//! ```rust,no_run
+//! ```text
 //! use smith_protocol::{Intent, Capability};
 //! use serde_json::json;
 //!

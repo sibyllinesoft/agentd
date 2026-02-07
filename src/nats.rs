@@ -36,7 +36,11 @@ pub trait NatsPublisher: Send + Sync {
 #[async_trait]
 pub trait IntentResultPublisher: Send + Sync {
     /// Publish an intent result
-    async fn publish_result(&self, intent_id: &str, result: &smith_protocol::IntentResult) -> Result<()>;
+    async fn publish_result(
+        &self,
+        intent_id: &str,
+        result: &smith_protocol::IntentResult,
+    ) -> Result<()>;
 }
 
 /// NATS client with JetStream support for pulling intents
@@ -390,7 +394,11 @@ impl NatsPublisher for NatsClient {
 
     async fn publish_with_reply(&self, subject: &str, reply: &str, payload: &[u8]) -> Result<()> {
         self.client
-            .publish_with_reply(subject.to_string(), reply.to_string(), payload.to_vec().into())
+            .publish_with_reply(
+                subject.to_string(),
+                reply.to_string(),
+                payload.to_vec().into(),
+            )
             .await
             .context("Failed to publish message with reply to NATS")?;
         Ok(())
@@ -408,7 +416,11 @@ impl NatsPublisher for NatsClient {
 
 #[async_trait]
 impl IntentResultPublisher for NatsClient {
-    async fn publish_result(&self, intent_id: &str, result: &smith_protocol::IntentResult) -> Result<()> {
+    async fn publish_result(
+        &self,
+        intent_id: &str,
+        result: &smith_protocol::IntentResult,
+    ) -> Result<()> {
         // Delegate to the existing publish_result method
         NatsClient::publish_result(self, intent_id, result).await
     }

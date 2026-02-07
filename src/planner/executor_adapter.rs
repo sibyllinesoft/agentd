@@ -50,7 +50,7 @@ The Executor Adapter provides sophisticated parallel execution capabilities with
 
 ## Usage
 
-```rust
+```text
 let adapter = ExecutorAdapter::new(&execution_config).await?;
 let result = adapter.execute_plan(&execution_plan).await?;
 

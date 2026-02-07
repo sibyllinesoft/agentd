@@ -56,7 +56,7 @@ The Stall Detection System provides comprehensive monitoring and recovery for wo
 
 ## Usage
 
-```rust
+```text
 let detector = StallDetector::new(config);
 let stall_event = detector.check_stall(workflow_id, &current_state).await?;
 
@@ -1840,7 +1840,12 @@ mod tests {
         assert!(config.recovery_preferences.prefer_auto_retry);
         assert_eq!(config.recovery_preferences.max_auto_retry_attempts, 3);
         assert_eq!(config.recovery_preferences.escalation_timeout_seconds, 1800);
-        assert_eq!(config.recovery_preferences.user_intervention_timeout_seconds, 3600);
+        assert_eq!(
+            config
+                .recovery_preferences
+                .user_intervention_timeout_seconds,
+            3600
+        );
     }
 
     // StallType serialization tests
@@ -2046,7 +2051,10 @@ mod tests {
         let parsed: StallDetectionConfig = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.global_timeout_seconds, config.global_timeout_seconds);
-        assert_eq!(parsed.progress_config.min_progress_velocity, config.progress_config.min_progress_velocity);
+        assert_eq!(
+            parsed.progress_config.min_progress_velocity,
+            config.progress_config.min_progress_velocity
+        );
     }
 
     // Clone tests
@@ -2201,7 +2209,9 @@ mod tests {
             resolution_deadline: None,
         };
 
-        let result = detector.select_critical_stall(vec![low_stall, critical_stall]).await;
+        let result = detector
+            .select_critical_stall(vec![low_stall, critical_stall])
+            .await;
         assert!(result.is_some());
         let selected = result.unwrap();
         assert!(matches!(selected.severity, StallSeverity::Critical));
@@ -2290,7 +2300,10 @@ mod tests {
         let metrics = detector.export_metrics().await;
         assert_eq!(metrics.total_stalls_detected, 1);
         assert_eq!(metrics.stalls_by_type.get("GlobalTimeout"), Some(&1));
-        assert_eq!(metrics.stalls_by_algorithm.get("TimeoutDetection"), Some(&1));
+        assert_eq!(
+            metrics.stalls_by_algorithm.get("TimeoutDetection"),
+            Some(&1)
+        );
     }
 
     #[tokio::test]
@@ -2303,7 +2316,7 @@ mod tests {
             timestamp: Instant::now(),
             cpu_available: 0.75,
             memory_available: 1024 * 1024 * 512, // 512 MB
-            disk_available: 1024 * 1024 * 1024, // 1 GB
+            disk_available: 1024 * 1024 * 1024,  // 1 GB
             network_available: 0.90,
             allocation_success_rate: 0.98,
         };
@@ -2319,10 +2332,14 @@ mod tests {
         let workflow_id = Uuid::new_v4();
 
         // First check triggers timeout tracker creation
-        let _ = detector.check_stall(workflow_id, &WorkflowState::Planning).await;
+        let _ = detector
+            .check_stall(workflow_id, &WorkflowState::Planning)
+            .await;
 
         // Checking with completed state should clear and return None
-        let result = detector.check_stall(workflow_id, &WorkflowState::Completed).await;
+        let result = detector
+            .check_stall(workflow_id, &WorkflowState::Completed)
+            .await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }
@@ -2334,10 +2351,14 @@ mod tests {
         let workflow_id = Uuid::new_v4();
 
         // First check triggers timeout tracker creation
-        let _ = detector.check_stall(workflow_id, &WorkflowState::Planning).await;
+        let _ = detector
+            .check_stall(workflow_id, &WorkflowState::Planning)
+            .await;
 
         // Checking with failed state should clear and return None
-        let result = detector.check_stall(workflow_id, &WorkflowState::Failed).await;
+        let result = detector
+            .check_stall(workflow_id, &WorkflowState::Failed)
+            .await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }

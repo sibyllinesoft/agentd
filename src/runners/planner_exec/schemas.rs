@@ -1564,10 +1564,7 @@ mod tests {
         let finding = ResearchFinding {
             title: "API Endpoint Discovery".to_string(),
             description: "Found REST API endpoints".to_string(),
-            evidence: vec![
-                "/api/v1/users".to_string(),
-                "/api/v1/items".to_string(),
-            ],
+            evidence: vec!["/api/v1/users".to_string(), "/api/v1/items".to_string()],
             relevance: 0.92,
         };
 

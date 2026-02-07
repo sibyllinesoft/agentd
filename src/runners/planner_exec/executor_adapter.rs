@@ -956,7 +956,10 @@ mod tests {
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: ExecutorAdapterConfig = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(config.max_parallel_executions, deserialized.max_parallel_executions);
+        assert_eq!(
+            config.max_parallel_executions,
+            deserialized.max_parallel_executions
+        );
         assert_eq!(config.default_timeout_ms, deserialized.default_timeout_ms);
     }
 
@@ -1208,43 +1211,57 @@ mod tests {
 
         // FileSystem
         assert_eq!(
-            adapter.map_action_to_capability(&ActionType::FileSystem("fs.read.v1".to_string())).unwrap(),
+            adapter
+                .map_action_to_capability(&ActionType::FileSystem("fs.read.v1".to_string()))
+                .unwrap(),
             "fs.read.v1"
         );
 
         // Http
         assert_eq!(
-            adapter.map_action_to_capability(&ActionType::Http("http.fetch.v1".to_string())).unwrap(),
+            adapter
+                .map_action_to_capability(&ActionType::Http("http.fetch.v1".to_string()))
+                .unwrap(),
             "http.fetch.v1"
         );
 
         // Shell
         assert_eq!(
-            adapter.map_action_to_capability(&ActionType::Shell("shell.exec.v1".to_string())).unwrap(),
+            adapter
+                .map_action_to_capability(&ActionType::Shell("shell.exec.v1".to_string()))
+                .unwrap(),
             "shell.exec.v1"
         );
 
         // Research
         assert_eq!(
-            adapter.map_action_to_capability(&ActionType::Research("topic".to_string())).unwrap(),
+            adapter
+                .map_action_to_capability(&ActionType::Research("topic".to_string()))
+                .unwrap(),
             "research.analyze.v1"
         );
 
         // Planning
         assert_eq!(
-            adapter.map_action_to_capability(&ActionType::Planning("plan".to_string())).unwrap(),
+            adapter
+                .map_action_to_capability(&ActionType::Planning("plan".to_string()))
+                .unwrap(),
             "planning.generate.v1"
         );
 
         // Analysis
         assert_eq!(
-            adapter.map_action_to_capability(&ActionType::Analysis("analyze".to_string())).unwrap(),
+            adapter
+                .map_action_to_capability(&ActionType::Analysis("analyze".to_string()))
+                .unwrap(),
             "analysis.perform.v1"
         );
 
         // Custom
         assert_eq!(
-            adapter.map_action_to_capability(&ActionType::Custom("custom.capability.v1".to_string())).unwrap(),
+            adapter
+                .map_action_to_capability(&ActionType::Custom("custom.capability.v1".to_string()))
+                .unwrap(),
             "custom.capability.v1"
         );
     }

@@ -370,7 +370,10 @@ mod tests {
     async fn test_authenticate_non_peer_creds() {
         let provider = PeerCredProvider::new();
 
-        let result = provider.authenticate(&Credentials::Anonymous).await.unwrap();
+        let result = provider
+            .authenticate(&Credentials::Anonymous)
+            .await
+            .unwrap();
 
         match result {
             AuthResult::Failed { reason, permanent } => {
@@ -463,7 +466,10 @@ mod tests {
         assert_eq!(stats.auth_failures, 0);
 
         // Failed auth
-        provider.authenticate(&Credentials::Anonymous).await.unwrap();
+        provider
+            .authenticate(&Credentials::Anonymous)
+            .await
+            .unwrap();
 
         let stats = provider.stats().await;
         assert_eq!(stats.auth_attempts, 2);

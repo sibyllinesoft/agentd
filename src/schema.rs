@@ -750,10 +750,7 @@ mod tests {
         });
 
         let result = validator.validate_intent(&intent);
-        assert!(
-            result.is_err(),
-            "FS read with negative offset should fail"
-        );
+        assert!(result.is_err(), "FS read with negative offset should fail");
     }
 
     #[test]
@@ -792,20 +789,17 @@ mod tests {
     fn test_intent_ttl_too_high() {
         let validator = SchemaValidator::new().unwrap();
         let mut intent = create_valid_fs_read_intent();
-        intent.ttl_ms = 700_000;  // Above 600_000 maximum
+        intent.ttl_ms = 700_000; // Above 600_000 maximum
 
         let result = validator.validate_intent(&intent);
-        assert!(
-            result.is_err(),
-            "Intent with TTL above maximum should fail"
-        );
+        assert!(result.is_err(), "Intent with TTL above maximum should fail");
     }
 
     #[test]
     fn test_intent_ttl_at_max() {
         let validator = SchemaValidator::new().unwrap();
         let mut intent = create_valid_fs_read_intent();
-        intent.ttl_ms = 600_000;  // Exactly at maximum
+        intent.ttl_ms = 600_000; // Exactly at maximum
 
         let result = validator.validate_intent(&intent);
         assert!(
@@ -819,26 +813,20 @@ mod tests {
     fn test_intent_domain_empty() {
         let validator = SchemaValidator::new().unwrap();
         let mut intent = create_valid_fs_read_intent();
-        intent.domain = String::new();  // Empty domain
+        intent.domain = String::new(); // Empty domain
 
         let result = validator.validate_intent(&intent);
-        assert!(
-            result.is_err(),
-            "Intent with empty domain should fail"
-        );
+        assert!(result.is_err(), "Intent with empty domain should fail");
     }
 
     #[test]
     fn test_intent_domain_too_long() {
         let validator = SchemaValidator::new().unwrap();
         let mut intent = create_valid_fs_read_intent();
-        intent.domain = "a".repeat(129);  // Above 128 max
+        intent.domain = "a".repeat(129); // Above 128 max
 
         let result = validator.validate_intent(&intent);
-        assert!(
-            result.is_err(),
-            "Intent with domain too long should fail"
-        );
+        assert!(result.is_err(), "Intent with domain too long should fail");
     }
 
     #[test]
@@ -868,52 +856,40 @@ mod tests {
         });
 
         let result = validator.validate_intent(&intent);
-        assert!(
-            result.is_err(),
-            "HTTP fetch with POST method should fail"
-        );
+        assert!(result.is_err(), "HTTP fetch with POST method should fail");
     }
 
     #[test]
     fn test_http_fetch_url_too_long() {
         let validator = SchemaValidator::new().unwrap();
         let mut intent = create_valid_http_fetch_intent();
-        let long_path = "a".repeat(2049);  // Above 2048 max
+        let long_path = "a".repeat(2049); // Above 2048 max
         intent.params = json!({
             "url": format!("https://api.example.com/{}", long_path),
         });
 
         let result = validator.validate_intent(&intent);
-        assert!(
-            result.is_err(),
-            "HTTP fetch with URL too long should fail"
-        );
+        assert!(result.is_err(), "HTTP fetch with URL too long should fail");
     }
 
     #[test]
     fn test_nonce_too_long() {
         let validator = SchemaValidator::new().unwrap();
         let mut intent = create_valid_fs_read_intent();
-        intent.nonce = "a".repeat(65);  // Above 64 max
+        intent.nonce = "a".repeat(65); // Above 64 max
 
         let result = validator.validate_intent(&intent);
-        assert!(
-            result.is_err(),
-            "Intent with nonce too long should fail"
-        );
+        assert!(result.is_err(), "Intent with nonce too long should fail");
     }
 
     #[test]
     fn test_nonce_non_hex() {
         let validator = SchemaValidator::new().unwrap();
         let mut intent = create_valid_fs_read_intent();
-        intent.nonce = "ghijklmnopqrstuvwxyz".to_string();  // Non-hex chars
+        intent.nonce = "ghijklmnopqrstuvwxyz".to_string(); // Non-hex chars
 
         let result = validator.validate_intent(&intent);
-        assert!(
-            result.is_err(),
-            "Intent with non-hex nonce should fail"
-        );
+        assert!(result.is_err(), "Intent with non-hex nonce should fail");
     }
 
     #[test]
@@ -979,6 +955,9 @@ mod tests {
             std::path::Path::new("/nonexistent/schema.json"),
         );
 
-        assert!(result.is_err(), "Loading nonexistent schema file should fail");
+        assert!(
+            result.is_err(),
+            "Loading nonexistent schema file should fail"
+        );
     }
 }

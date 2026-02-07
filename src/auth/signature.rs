@@ -538,7 +538,10 @@ mod tests {
     async fn test_authenticate_non_signature_credentials() {
         let provider = SignatureProvider::new();
 
-        let result = provider.authenticate(&Credentials::Anonymous).await.unwrap();
+        let result = provider
+            .authenticate(&Credentials::Anonymous)
+            .await
+            .unwrap();
 
         match result {
             AuthResult::Failed { reason, permanent } => {
@@ -650,7 +653,10 @@ mod tests {
         assert_eq!(stats.auth_failures, 1);
 
         // Failed auth (wrong credential type)
-        provider.authenticate(&Credentials::Anonymous).await.unwrap();
+        provider
+            .authenticate(&Credentials::Anonymous)
+            .await
+            .unwrap();
 
         let stats = provider.stats().await;
         assert_eq!(stats.auth_attempts, 2);

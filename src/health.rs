@@ -1125,7 +1125,9 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
         assert_eq!(body["status"], "healthy");
         assert!(body["platform"]["is_linux"].as_bool().unwrap());
-        assert!(body["security_features"]["overall_secure"].as_bool().unwrap());
+        assert!(body["security_features"]["overall_secure"]
+            .as_bool()
+            .unwrap());
         assert!(body["isolation_status"]["effective"].as_bool().unwrap());
         assert!(body["services"]["nats_connected"].as_bool().unwrap());
     }
@@ -1169,7 +1171,9 @@ mod tests {
 
         let body: serde_json::Value = serde_json::from_slice(response.body()).unwrap();
         assert_eq!(body["status"], "unhealthy");
-        assert!(!body["security_features"]["overall_secure"].as_bool().unwrap());
+        assert!(!body["security_features"]["overall_secure"]
+            .as_bool()
+            .unwrap());
     }
 
     #[tokio::test]

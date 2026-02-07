@@ -197,18 +197,12 @@ impl RoutingCondition {
                 }
             }
             RoutingCondition::SourceAdapter(adapter) => ctx.source_adapter == *adapter,
-            RoutingCondition::HasMetadata(key) => {
-                ctx.metadata.iter().any(|(k, _)| k == key)
-            }
+            RoutingCondition::HasMetadata(key) => ctx.metadata.iter().any(|(k, _)| k == key),
             RoutingCondition::MetadataMatch { key, value } => {
                 ctx.metadata.iter().any(|(k, v)| k == key && v == value)
             }
-            RoutingCondition::And(conditions) => {
-                conditions.iter().all(|c| c.evaluate(ctx, status))
-            }
-            RoutingCondition::Or(conditions) => {
-                conditions.iter().any(|c| c.evaluate(ctx, status))
-            }
+            RoutingCondition::And(conditions) => conditions.iter().all(|c| c.evaluate(ctx, status)),
+            RoutingCondition::Or(conditions) => conditions.iter().any(|c| c.evaluate(ctx, status)),
             RoutingCondition::Not(condition) => !condition.evaluate(ctx, status),
         }
     }

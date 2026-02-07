@@ -261,8 +261,14 @@ mod tests {
 
         assert!(metrics.is_object());
         let obj = metrics.as_object().unwrap();
-        assert_eq!(obj.get("target_service").unwrap().as_str().unwrap(), "unknown-service");
-        assert_eq!(obj.get("latency_budget_ms").unwrap().as_f64().unwrap(), 250.0);
+        assert_eq!(
+            obj.get("target_service").unwrap().as_str().unwrap(),
+            "unknown-service"
+        );
+        assert_eq!(
+            obj.get("latency_budget_ms").unwrap().as_f64().unwrap(),
+            250.0
+        );
         assert!(obj.contains_key("workspace_size_bytes"));
         assert!(obj.contains_key("estimated_cpu_saturation_pct"));
     }
@@ -280,8 +286,14 @@ mod tests {
         let metrics = runner.derive_performance_metrics(&ctx, &params);
 
         let obj = metrics.as_object().unwrap();
-        assert_eq!(obj.get("target_service").unwrap().as_str().unwrap(), "api-gateway");
-        assert_eq!(obj.get("latency_budget_ms").unwrap().as_f64().unwrap(), 150.0);
+        assert_eq!(
+            obj.get("target_service").unwrap().as_str().unwrap(),
+            "api-gateway"
+        );
+        assert_eq!(
+            obj.get("latency_budget_ms").unwrap().as_f64().unwrap(),
+            150.0
+        );
     }
 
     #[test]
@@ -292,7 +304,11 @@ mod tests {
         let params = json!({});
 
         let metrics = runner.derive_performance_metrics(&ctx, &params);
-        let saturation = metrics.get("estimated_cpu_saturation_pct").unwrap().as_f64().unwrap();
+        let saturation = metrics
+            .get("estimated_cpu_saturation_pct")
+            .unwrap()
+            .as_f64()
+            .unwrap();
 
         // Empty workspace should have minimum saturation (5%)
         assert!(saturation >= 5.0);

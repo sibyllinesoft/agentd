@@ -1045,7 +1045,11 @@ mod tests {
         let deserialized: APIRequest = serde_json::from_str(&serialized).unwrap();
 
         match deserialized {
-            APIRequest::StartWorkflow { session_id, streaming, .. } => {
+            APIRequest::StartWorkflow {
+                session_id,
+                streaming,
+                ..
+            } => {
                 assert_eq!(session_id, "test-session");
                 assert!(streaming);
             }
@@ -1132,7 +1136,10 @@ mod tests {
         let serialized = serde_json::to_string(&request).unwrap();
         let deserialized: APIRequest = serde_json::from_str(&serialized).unwrap();
         match deserialized {
-            APIRequest::GetWorkflowHistory { session_id, include_telemetry } => {
+            APIRequest::GetWorkflowHistory {
+                session_id,
+                include_telemetry,
+            } => {
                 assert_eq!(session_id, "history-session");
                 assert!(include_telemetry);
             }
@@ -1184,7 +1191,11 @@ mod tests {
         let serialized = serde_json::to_string(&request).unwrap();
         let deserialized: APIRequest = serde_json::from_str(&serialized).unwrap();
         match deserialized {
-            APIRequest::UserIntervention { session_id, action, parameters } => {
+            APIRequest::UserIntervention {
+                session_id,
+                action,
+                parameters,
+            } => {
                 assert_eq!(session_id, "intervention-session");
                 assert_eq!(action, "approve");
                 assert_eq!(parameters.get("key"), Some(&"value".to_string()));
@@ -1204,7 +1215,10 @@ mod tests {
         let serialized = serde_json::to_string(&response).unwrap();
         let deserialized: APIResponse = serde_json::from_str(&serialized).unwrap();
         match deserialized {
-            APIResponse::WorkflowStarted { session_id, stream_subject } => {
+            APIResponse::WorkflowStarted {
+                session_id,
+                stream_subject,
+            } => {
                 assert_eq!(session_id, "started-session");
                 assert!(stream_subject.is_some());
             }
@@ -1221,7 +1235,10 @@ mod tests {
         let serialized = serde_json::to_string(&response).unwrap();
         let deserialized: APIResponse = serde_json::from_str(&serialized).unwrap();
         match deserialized {
-            APIResponse::WorkflowStopped { session_id, summary } => {
+            APIResponse::WorkflowStopped {
+                session_id,
+                summary,
+            } => {
                 assert_eq!(session_id, "stopped-session");
                 assert!(summary.is_none());
             }
@@ -1243,7 +1260,11 @@ mod tests {
         let serialized = serde_json::to_string(&response).unwrap();
         let deserialized: APIResponse = serde_json::from_str(&serialized).unwrap();
         match deserialized {
-            APIResponse::WorkflowStatus { session_id, progress, .. } => {
+            APIResponse::WorkflowStatus {
+                session_id,
+                progress,
+                ..
+            } => {
                 assert_eq!(session_id, "status-session");
                 assert_eq!(progress, 0.75);
             }
@@ -1286,7 +1307,11 @@ mod tests {
         let serialized = serde_json::to_string(&response).unwrap();
         let deserialized: APIResponse = serde_json::from_str(&serialized).unwrap();
         match deserialized {
-            APIResponse::Error { code, message, details } => {
+            APIResponse::Error {
+                code,
+                message,
+                details,
+            } => {
                 assert_eq!(code, "VALIDATION_ERROR");
                 assert_eq!(message, "Invalid parameters");
                 assert!(details.is_some());
@@ -1341,7 +1366,11 @@ mod tests {
         let serialized = serde_json::to_string(&response).unwrap();
         let deserialized: APIResponse = serde_json::from_str(&serialized).unwrap();
         match deserialized {
-            APIResponse::InterventionResult { session_id, success, message } => {
+            APIResponse::InterventionResult {
+                session_id,
+                success,
+                message,
+            } => {
                 assert_eq!(session_id, "intervention-session");
                 assert!(success);
                 assert_eq!(message, "Action completed");

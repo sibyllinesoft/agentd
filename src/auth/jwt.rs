@@ -204,10 +204,7 @@ impl AuthProvider for JwtProvider {
         // In a real implementation, this would check against a policy engine
         if identity.has_role("admin") || identity.has_role("user") {
             self.stats.authz_allowed.fetch_add(1, Ordering::Relaxed);
-            Ok(AuthzDecision::allow(
-                "User has required role",
-                "jwt-rbac",
-            ))
+            Ok(AuthzDecision::allow("User has required role", "jwt-rbac"))
         } else {
             self.stats.authz_denied.fetch_add(1, Ordering::Relaxed);
             Ok(AuthzDecision::deny(

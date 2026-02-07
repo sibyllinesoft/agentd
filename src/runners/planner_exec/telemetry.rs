@@ -1409,37 +1409,45 @@ mod tests {
     async fn test_mixed_event_severities() {
         let collector = TelemetryCollector::new("test-session".to_string(), None);
 
-        collector.record_event(
-            EventType::WorkflowStart,
-            "test",
-            "Debug message",
-            HashMap::new(),
-            Severity::Debug,
-        ).await;
+        collector
+            .record_event(
+                EventType::WorkflowStart,
+                "test",
+                "Debug message",
+                HashMap::new(),
+                Severity::Debug,
+            )
+            .await;
 
-        collector.record_event(
-            EventType::ActionExecuted,
-            "test",
-            "Info message",
-            HashMap::new(),
-            Severity::Info,
-        ).await;
+        collector
+            .record_event(
+                EventType::ActionExecuted,
+                "test",
+                "Info message",
+                HashMap::new(),
+                Severity::Info,
+            )
+            .await;
 
-        collector.record_event(
-            EventType::PerformanceWarning,
-            "test",
-            "Warning message",
-            HashMap::new(),
-            Severity::Warning,
-        ).await;
+        collector
+            .record_event(
+                EventType::PerformanceWarning,
+                "test",
+                "Warning message",
+                HashMap::new(),
+                Severity::Warning,
+            )
+            .await;
 
-        collector.record_event(
-            EventType::SecurityViolation,
-            "test",
-            "Critical message",
-            HashMap::new(),
-            Severity::Critical,
-        ).await;
+        collector
+            .record_event(
+                EventType::SecurityViolation,
+                "test",
+                "Critical message",
+                HashMap::new(),
+                Severity::Critical,
+            )
+            .await;
 
         let report = collector.generate_report().await;
         assert_eq!(report.events.len(), 4);
@@ -1489,7 +1497,10 @@ mod tests {
         );
 
         let report = collector.generate_report().await;
-        assert_eq!(report.workflow_type, Some(WorkflowType::ResearchAndPlanning));
+        assert_eq!(
+            report.workflow_type,
+            Some(WorkflowType::ResearchAndPlanning)
+        );
     }
 
     #[tokio::test]
@@ -1602,8 +1613,8 @@ mod tests {
     #[tokio::test]
     async fn test_action_execution_recording_completed() {
         use crate::runners::planner_exec::schemas::{
-            ActionError, ActionMetadata, ActionResult, ActionStatus, ActionType, ExecutionEnvironment,
-            ResourceUsage, WorkflowAction,
+            ActionError, ActionMetadata, ActionResult, ActionStatus, ActionType,
+            ExecutionEnvironment, ResourceUsage, WorkflowAction,
         };
 
         let collector = TelemetryCollector::new("test-session".to_string(), None);
@@ -1643,8 +1654,8 @@ mod tests {
     #[tokio::test]
     async fn test_action_execution_recording_failed() {
         use crate::runners::planner_exec::schemas::{
-            ActionError, ActionMetadata, ActionResult, ActionStatus, ActionType, ExecutionEnvironment,
-            ResourceUsage, WorkflowAction,
+            ActionError, ActionMetadata, ActionResult, ActionStatus, ActionType,
+            ExecutionEnvironment, ResourceUsage, WorkflowAction,
         };
 
         let collector = TelemetryCollector::new("test-session".to_string(), None);
@@ -1743,7 +1754,12 @@ mod tests {
             .await;
 
         collector
-            .record_error_recovery("auth_error", "refresh_token", false, Duration::from_millis(200))
+            .record_error_recovery(
+                "auth_error",
+                "refresh_token",
+                false,
+                Duration::from_millis(200),
+            )
             .await;
 
         let report = collector.generate_report().await;
@@ -1891,7 +1907,10 @@ mod tests {
         let report = collector.generate_report().await;
         assert!(!report.recommendations.is_empty());
         // Should have the "within normal parameters" recommendation
-        assert!(report.recommendations.iter().any(|r| r.contains("normal parameters")));
+        assert!(report
+            .recommendations
+            .iter()
+            .any(|r| r.contains("normal parameters")));
     }
 
     #[tokio::test]
@@ -1934,7 +1953,10 @@ mod tests {
         }
 
         let report = collector.generate_report().await;
-        assert!(report.recommendations.iter().any(|r| r.contains("stalls") || r.contains("Multiple stalls")));
+        assert!(report
+            .recommendations
+            .iter()
+            .any(|r| r.contains("stalls") || r.contains("Multiple stalls")));
     }
 
     // ==================== Export Format Tests ====================

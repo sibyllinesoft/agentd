@@ -18,9 +18,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
-use crate::config::agentd::{
-    AgentdConfig, ExecutionProfile, IsolationBackendType,
-};
+use crate::config::agentd::{AgentdConfig, ExecutionProfile, IsolationBackendType};
 use crate::core::auth::AuthProvider;
 use crate::core::ingest::{
     CapabilityInfo, HealthStatus, IngestAdapter, IntentHandler, OutputChunk, RequestContext,
@@ -61,10 +59,15 @@ pub struct AgentdRuntime {
 impl AgentdRuntime {
     /// Create a new runtime with the given configuration
     pub async fn new(config: AgentdConfig) -> Result<Self> {
-        info!("Initializing AgentdRuntime with profile: {:?}", config.profile);
+        info!(
+            "Initializing AgentdRuntime with profile: {:?}",
+            config.profile
+        );
 
         // Validate configuration
-        config.validate().context("Configuration validation failed")?;
+        config
+            .validate()
+            .context("Configuration validation failed")?;
 
         // Ensure work_root exists
         std::fs::create_dir_all(&config.work_root)
@@ -91,7 +94,9 @@ impl AgentdRuntime {
         };
 
         // Probe backend capabilities
-        let backend_caps = isolation_backend.probe().await
+        let backend_caps = isolation_backend
+            .probe()
+            .await
             .context("Failed to probe isolation backend")?;
         info!("Isolation backend capabilities: {:?}", backend_caps);
 
@@ -99,7 +104,8 @@ impl AgentdRuntime {
         let auth_providers = Self::setup_auth_providers(&config).await?;
 
         // Initialize sandbox manager
-        let sandbox_manager = Self::setup_sandbox_manager(isolation_backend.clone(), &config).await?;
+        let sandbox_manager =
+            Self::setup_sandbox_manager(isolation_backend.clone(), &config).await?;
 
         // Create the runtime (adapters will be added during start)
         let runtime = Self {
@@ -191,7 +197,9 @@ impl AgentdRuntime {
         info!("Reloading AgentdRuntime configuration");
 
         // Validate new configuration
-        new_config.validate().context("New configuration validation failed")?;
+        new_config
+            .validate()
+            .context("New configuration validation failed")?;
 
         // Update stored configuration
         {
@@ -290,7 +298,9 @@ impl AgentdRuntime {
         backend: Arc<dyn IsolationBackend>,
         config: &AgentdConfig,
     ) -> Result<Arc<dyn SandboxManager>> {
-        use crate::core::sandbox::{DefaultSandboxManager, PoolConfig, SandboxManagerConfig, SessionTimeouts};
+        use crate::core::sandbox::{
+            DefaultSandboxManager, PoolConfig, SandboxManagerConfig, SessionTimeouts,
+        };
 
         let manager_config = SandboxManagerConfig {
             max_sandboxes: config.sandbox.pool.max_warm,
@@ -299,14 +309,13 @@ impl AgentdRuntime {
                 min_warm: config.sandbox.pool.min_warm,
                 max_warm: config.sandbox.pool.max_warm,
                 warm_ttl: std::time::Duration::from_secs(config.sandbox.pool.idle_timeout_secs),
-                warm_profiles: vec![
-                    match config.profile {
-                        ExecutionProfile::Workstation => "workstation",
-                        ExecutionProfile::Server => "server",
-                        ExecutionProfile::Paranoid => "paranoid",
-                        ExecutionProfile::Custom => "custom",
-                    }.to_string()
-                ],
+                warm_profiles: vec![match config.profile {
+                    ExecutionProfile::Workstation => "workstation",
+                    ExecutionProfile::Server => "server",
+                    ExecutionProfile::Paranoid => "paranoid",
+                    ExecutionProfile::Custom => "custom",
+                }
+                .to_string()],
             },
             default_timeouts: SessionTimeouts::default(),
             cleanup_interval: std::time::Duration::from_secs(60),
@@ -330,10 +339,15 @@ impl AgentdRuntime {
         if config.adapters.grpc.enabled {
             if let Some(listen_addr) = config.adapters.grpc.listen {
                 info!("Starting gRPC adapter on {}", listen_addr);
-                let grpc_adapter = Arc::new(crate::adapters::GrpcAdapter::with_address(listen_addr));
+                let grpc_adapter =
+                    Arc::new(crate::adapters::GrpcAdapter::with_address(listen_addr));
                 // Wire up the sandbox manager for sandbox lifecycle operations
-                grpc_adapter.set_sandbox_manager(self.sandbox_manager.clone()).await;
-                grpc_adapter.start(handler.clone()).await
+                grpc_adapter
+                    .set_sandbox_manager(self.sandbox_manager.clone())
+                    .await;
+                grpc_adapter
+                    .start(handler.clone())
+                    .await
                     .context("Failed to start gRPC adapter")?;
                 self.adapters.push(grpc_adapter);
             }
@@ -375,7 +389,7 @@ struct RuntimeIntentHandler {
 impl IntentHandler for RuntimeIntentHandler {
     async fn handle(&self, request: IntentRequest, ctx: RequestContext) -> Result<IntentResponse> {
         use crate::core::isolation::SandboxSpec;
-        use crate::core::sandbox::{SandboxSelectionOptions, RequiredCapabilities};
+        use crate::core::sandbox::{RequiredCapabilities, SandboxSelectionOptions};
 
         let start_time = std::time::Instant::now();
         let received_at = chrono::Utc::now().timestamp_millis() as u64;
@@ -388,7 +402,10 @@ impl IntentHandler for RuntimeIntentHandler {
 
         // Build sandbox selection options
         let selection_options = SandboxSelectionOptions {
-            preferred_id: request.sandbox_prefs.sandbox_id.clone()
+            preferred_id: request
+                .sandbox_prefs
+                .sandbox_id
+                .clone()
                 .map(|id| crate::core::sandbox::SandboxId(id)),
             require_fresh: request.sandbox_prefs.require_fresh,
             required_capabilities: RequiredCapabilities::default(),
@@ -398,11 +415,10 @@ impl IntentHandler for RuntimeIntentHandler {
         };
 
         // Acquire sandbox
-        let (_session, sandbox) = self.sandbox_manager.acquire(
-            &sandbox_spec,
-            &selection_options,
-            &ctx.client_id,
-        ).await?;
+        let (_session, sandbox) = self
+            .sandbox_manager
+            .acquire(&sandbox_spec, &selection_options, &ctx.client_id)
+            .await?;
 
         // Build command from request
         let command = crate::core::intent::Command {
@@ -412,7 +428,10 @@ impl IntentHandler for RuntimeIntentHandler {
             env: std::collections::HashMap::new(),
             inherit_env: false,
             stdin: None,
-            timeout: request.constraints.max_duration_ms.map(std::time::Duration::from_millis),
+            timeout: request
+                .constraints
+                .max_duration_ms
+                .map(std::time::Duration::from_millis),
         };
 
         // Create execution context
@@ -421,7 +440,10 @@ impl IntentHandler for RuntimeIntentHandler {
             request_id: request.id.to_string(),
             workdir: Some(std::path::PathBuf::from("/tmp")),
             extra_env: vec![],
-            timeout: request.constraints.max_duration_ms.map(std::time::Duration::from_millis),
+            timeout: request
+                .constraints
+                .max_duration_ms
+                .map(std::time::Duration::from_millis),
             capture_stdout: true,
             capture_stderr: true,
             stream_output: false,
@@ -441,8 +463,16 @@ impl IntentHandler for RuntimeIntentHandler {
 
                 Ok(IntentResponse {
                     request_id: request.id,
-                    status: if output.exit_code == 0 { IntentStatus::Ok } else { IntentStatus::Error },
-                    code: if output.exit_code == 0 { "OK".to_string() } else { "ERROR".to_string() },
+                    status: if output.exit_code == 0 {
+                        IntentStatus::Ok
+                    } else {
+                        IntentStatus::Error
+                    },
+                    code: if output.exit_code == 0 {
+                        "OK".to_string()
+                    } else {
+                        "ERROR".to_string()
+                    },
                     message: if output.exit_code == 0 {
                         "Execution completed successfully".to_string()
                     } else {
@@ -470,32 +500,30 @@ impl IntentHandler for RuntimeIntentHandler {
                     sandbox_info: None,
                 })
             }
-            Err(e) => {
-                Ok(IntentResponse {
-                    request_id: request.id,
-                    status: IntentStatus::Error,
+            Err(e) => Ok(IntentResponse {
+                request_id: request.id,
+                status: IntentStatus::Error,
+                code: "EXECUTION_ERROR".to_string(),
+                message: format!("Execution failed: {}", e),
+                result: None,
+                error: Some(crate::core::intent::ErrorDetails {
                     code: "EXECUTION_ERROR".to_string(),
-                    message: format!("Execution failed: {}", e),
-                    result: None,
-                    error: Some(crate::core::intent::ErrorDetails {
-                        code: "EXECUTION_ERROR".to_string(),
-                        message: e.to_string(),
-                        details: None,
-                        retryable: false,
-                        retry_after_ms: None,
-                    }),
-                    timing: ResponseTiming {
-                        received_at_ms: received_at,
-                        started_at_ms: started_at,
-                        completed_at_ms: completed_at,
-                        queue_time_ms: started_at - received_at,
-                        setup_time_ms: 0,
-                        exec_time_ms: completed_at - started_at,
-                        total_time_ms: elapsed.as_millis() as u64,
-                    },
-                    sandbox_info: None,
-                })
-            }
+                    message: e.to_string(),
+                    details: None,
+                    retryable: false,
+                    retry_after_ms: None,
+                }),
+                timing: ResponseTiming {
+                    received_at_ms: received_at,
+                    started_at_ms: started_at,
+                    completed_at_ms: completed_at,
+                    queue_time_ms: started_at - received_at,
+                    setup_time_ms: 0,
+                    exec_time_ms: completed_at - started_at,
+                    total_time_ms: elapsed.as_millis() as u64,
+                },
+                sandbox_info: None,
+            }),
         }
     }
 

@@ -337,8 +337,14 @@ mod tests {
     #[test]
     fn test_health_status_is_healthy() {
         assert!(HealthStatus::Healthy.is_healthy());
-        assert!(HealthStatus::Degraded { reason: "test".to_string() }.is_healthy());
-        assert!(!HealthStatus::Unhealthy { reason: "test".to_string() }.is_healthy());
+        assert!(HealthStatus::Degraded {
+            reason: "test".to_string()
+        }
+        .is_healthy());
+        assert!(!HealthStatus::Unhealthy {
+            reason: "test".to_string()
+        }
+        .is_healthy());
         assert!(!HealthStatus::Starting.is_healthy());
         assert!(!HealthStatus::Stopping.is_healthy());
     }
@@ -381,8 +387,14 @@ mod tests {
     fn test_output_chunk_variants() {
         let stdout = OutputChunk::Stdout(vec![1, 2, 3]);
         let stderr = OutputChunk::Stderr(vec![4, 5, 6]);
-        let progress = OutputChunk::Progress { percent: 50.0, message: "halfway".to_string() };
-        let log = OutputChunk::Log { level: "info".to_string(), message: "test".to_string() };
+        let progress = OutputChunk::Progress {
+            percent: 50.0,
+            message: "halfway".to_string(),
+        };
+        let log = OutputChunk::Log {
+            level: "info".to_string(),
+            message: "test".to_string(),
+        };
         let done = OutputChunk::Done;
 
         // Just verify we can create and clone them
@@ -443,8 +455,7 @@ mod tests {
             require_client_cert: true,
         };
 
-        let builder = AdapterBuilder::new("grpc")
-            .with_tls(tls_config);
+        let builder = AdapterBuilder::new("grpc").with_tls(tls_config);
 
         assert!(builder.tls_config.is_some());
         let tls = builder.tls_config.unwrap();
@@ -464,8 +475,7 @@ mod tests {
             api_key_config: None,
         };
 
-        let builder = AdapterBuilder::new("http")
-            .with_auth(auth_config);
+        let builder = AdapterBuilder::new("http").with_auth(auth_config);
 
         assert!(builder.auth_config.is_some());
     }

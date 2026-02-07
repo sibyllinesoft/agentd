@@ -1559,7 +1559,9 @@ mod tests {
     async fn test_research_action_validation() {
         let ctx = create_test_context();
         let mut config = GuardConfig::default();
-        config.allowed_capabilities.insert("research.v1".to_string());
+        config
+            .allowed_capabilities
+            .insert("research.v1".to_string());
         let mut guard = Guard::with_config(&ctx, config).unwrap();
 
         let research_action = WorkflowAction::new(
@@ -1576,7 +1578,9 @@ mod tests {
     async fn test_planning_action_validation() {
         let ctx = create_test_context();
         let mut config = GuardConfig::default();
-        config.allowed_capabilities.insert("planning.v1".to_string());
+        config
+            .allowed_capabilities
+            .insert("planning.v1".to_string());
         let mut guard = Guard::with_config(&ctx, config).unwrap();
 
         let planning_action = WorkflowAction::new(
@@ -1593,7 +1597,9 @@ mod tests {
     async fn test_analysis_action_validation() {
         let ctx = create_test_context();
         let mut config = GuardConfig::default();
-        config.allowed_capabilities.insert("analysis.v1".to_string());
+        config
+            .allowed_capabilities
+            .insert("analysis.v1".to_string());
         let mut guard = Guard::with_config(&ctx, config).unwrap();
 
         let analysis_action = WorkflowAction::new(
@@ -1685,7 +1691,9 @@ mod tests {
     async fn test_sudo_command_blocked() {
         let ctx = create_test_context();
         let mut config = GuardConfig::default();
-        config.allowed_capabilities.insert("shell.exec.v1".to_string());
+        config
+            .allowed_capabilities
+            .insert("shell.exec.v1".to_string());
         let mut guard = Guard::with_config(&ctx, config).unwrap();
 
         let sudo_action = WorkflowAction::new(
@@ -1702,7 +1710,9 @@ mod tests {
     async fn test_chmod_777_blocked() {
         let ctx = create_test_context();
         let mut config = GuardConfig::default();
-        config.allowed_capabilities.insert("shell.exec.v1".to_string());
+        config
+            .allowed_capabilities
+            .insert("shell.exec.v1".to_string());
         let mut guard = Guard::with_config(&ctx, config).unwrap();
 
         let chmod_action = WorkflowAction::new(
@@ -1719,7 +1729,9 @@ mod tests {
     async fn test_dd_command_blocked() {
         let ctx = create_test_context();
         let mut config = GuardConfig::default();
-        config.allowed_capabilities.insert("shell.exec.v1".to_string());
+        config
+            .allowed_capabilities
+            .insert("shell.exec.v1".to_string());
         let mut guard = Guard::with_config(&ctx, config).unwrap();
 
         let dd_action = WorkflowAction::new(
@@ -1789,7 +1801,10 @@ mod tests {
             "Multiple violations".to_string(),
         );
 
-        let result = guard.validate_action_detailed(&multi_violation_action).await.unwrap();
+        let result = guard
+            .validate_action_detailed(&multi_violation_action)
+            .await
+            .unwrap();
         assert!(!result.allowed);
         assert!(result.violations.len() > 1);
     }
@@ -1798,7 +1813,9 @@ mod tests {
     async fn test_custom_config_with_additional_capability() {
         let ctx = create_test_context();
         let mut config = GuardConfig::default();
-        config.allowed_capabilities.insert("custom.capability.v1".to_string());
+        config
+            .allowed_capabilities
+            .insert("custom.capability.v1".to_string());
 
         let mut guard = Guard::with_config(&ctx, config).unwrap();
 

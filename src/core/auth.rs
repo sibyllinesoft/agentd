@@ -20,9 +20,7 @@ pub enum Credentials {
     Anonymous,
 
     /// Bearer token (JWT or API key)
-    Bearer {
-        token: String,
-    },
+    Bearer { token: String },
 
     /// Client certificate
     Certificate {
@@ -34,11 +32,7 @@ pub enum Credentials {
     },
 
     /// Unix peer credentials
-    PeerCredentials {
-        uid: u32,
-        gid: u32,
-        pid: u32,
-    },
+    PeerCredentials { uid: u32, gid: u32, pid: u32 },
 
     /// Ed25519 signed request
     Signature {
@@ -497,7 +491,9 @@ mod tests {
         identity
             .claims
             .insert("email".to_string(), serde_json::json!("user@example.com"));
-        identity.claims.insert("level".to_string(), serde_json::json!(5));
+        identity
+            .claims
+            .insert("level".to_string(), serde_json::json!(5));
 
         let email: Option<String> = identity.get_claim("email");
         assert_eq!(email, Some("user@example.com".to_string()));

@@ -1196,7 +1196,10 @@ mod tests {
     fn test_agentd_config_default() {
         let config = AgentdConfig::default();
         assert_eq!(config.profile, ExecutionProfile::Workstation);
-        assert_eq!(config.isolation.default_backend, IsolationBackendType::HostDirect);
+        assert_eq!(
+            config.isolation.default_backend,
+            IsolationBackendType::HostDirect
+        );
         assert!(config.adapters.grpc.enabled);
         assert!(!config.auth.require_auth);
         assert!(config.sandbox.auto_create);
@@ -1544,7 +1547,10 @@ mod tests {
             sink_type: "webhook".to_string(),
             rule: "on_error".to_string(),
             config: HashMap::from([
-                ("url".to_string(), "https://hooks.example.com/alert".to_string()),
+                (
+                    "url".to_string(),
+                    "https://hooks.example.com/alert".to_string(),
+                ),
                 ("secret".to_string(), "webhook_secret".to_string()),
             ]),
         };
@@ -1732,7 +1738,10 @@ mod tests {
         let toml_str = toml::to_string(&config).unwrap();
         let parsed: AgentdConfig = toml::from_str(&toml_str).unwrap();
         assert_eq!(config.profile, parsed.profile);
-        assert_eq!(config.isolation.default_backend, parsed.isolation.default_backend);
+        assert_eq!(
+            config.isolation.default_backend,
+            parsed.isolation.default_backend
+        );
     }
 
     #[test]
@@ -1760,7 +1769,10 @@ mod tests {
         let config = AgentdConfig::server();
         let cloned = config.clone();
         assert_eq!(config.profile, cloned.profile);
-        assert_eq!(config.isolation.default_backend, cloned.isolation.default_backend);
+        assert_eq!(
+            config.isolation.default_backend,
+            cloned.isolation.default_backend
+        );
     }
 
     #[test]

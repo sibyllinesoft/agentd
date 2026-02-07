@@ -157,13 +157,19 @@ mod tests {
     #[test]
     fn test_hex_decode_known_values() {
         assert_eq!(hex_decode("414243").unwrap(), b"ABC");
-        assert_eq!(hex_decode("deadbeef").unwrap(), vec![0xde, 0xad, 0xbe, 0xef]);
+        assert_eq!(
+            hex_decode("deadbeef").unwrap(),
+            vec![0xde, 0xad, 0xbe, 0xef]
+        );
     }
 
     #[test]
     fn test_hex_decode_uppercase() {
         // Should handle uppercase hex
-        assert_eq!(hex_decode("DEADBEEF").unwrap(), vec![0xde, 0xad, 0xbe, 0xef]);
+        assert_eq!(
+            hex_decode("DEADBEEF").unwrap(),
+            vec![0xde, 0xad, 0xbe, 0xef]
+        );
     }
 
     #[test]
@@ -192,7 +198,8 @@ mod tests {
     fn test_sha256_hash_empty() {
         let hash = sha256_hash(&[]);
         // SHA256 of empty string is known
-        let expected = hex_decode("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap();
+        let expected =
+            hex_decode("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855").unwrap();
         assert_eq!(hash.as_slice(), expected.as_slice());
     }
 
@@ -201,7 +208,10 @@ mod tests {
         // SHA256 of "hello" is known
         let hash = sha256_hash(b"hello");
         let hex_hash = hex_encode(&hash);
-        assert_eq!(hex_hash, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        assert_eq!(
+            hex_hash,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
     }
 
     #[test]

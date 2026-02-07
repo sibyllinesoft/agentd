@@ -693,7 +693,10 @@ mod tests {
 
         // Should have info log about executing command
         assert!(!output.logs.is_empty());
-        assert!(output.logs.iter().any(|l| l.contains("Executing shell command")));
+        assert!(output
+            .logs
+            .iter()
+            .any(|l| l.contains("Executing shell command")));
     }
 
     #[tokio::test]

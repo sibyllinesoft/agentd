@@ -46,7 +46,7 @@ The Oracle system provides sophisticated AI-driven planning capabilities with:
 
 ## Usage
 
-```rust
+```text
 let oracle = Oracle::new(&ai_config).await?;
 let goal = Goal::new("Optimize database performance");
 let decision = oracle.plan_execution(&goal).await?;
@@ -1888,7 +1888,8 @@ mod tests {
             acceptable_risk_level: true,
         };
 
-        let confidence = oracle.calculate_decision_confidence(&research, &consensus, &risk_assessment);
+        let confidence =
+            oracle.calculate_decision_confidence(&research, &consensus, &risk_assessment);
 
         // Expected: 0.9 * 0.4 + 0.8 * 0.4 + (1 - 0.2) * 0.2 = 0.36 + 0.32 + 0.16 = 0.84
         assert!((confidence - 0.84).abs() < 0.01);

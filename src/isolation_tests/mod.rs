@@ -19,7 +19,7 @@ Each test module focuses on a specific isolation mechanism:
 
 ## Usage
 
-```rust
+```text
 use crate::isolation_tests;
 
 let results = isolation_tests::run_isolation_tests().await?;

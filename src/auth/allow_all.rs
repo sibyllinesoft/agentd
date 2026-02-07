@@ -145,7 +145,10 @@ mod tests {
     #[tokio::test]
     async fn test_authenticate_anonymous() {
         let provider = AllowAllProvider::new();
-        let result = provider.authenticate(&Credentials::Anonymous).await.unwrap();
+        let result = provider
+            .authenticate(&Credentials::Anonymous)
+            .await
+            .unwrap();
 
         match result {
             AuthResult::Success(identity) => {
@@ -246,8 +249,14 @@ mod tests {
         assert_eq!(stats.authz_checks, 0);
 
         // Authenticate multiple times
-        provider.authenticate(&Credentials::Anonymous).await.unwrap();
-        provider.authenticate(&Credentials::Anonymous).await.unwrap();
+        provider
+            .authenticate(&Credentials::Anonymous)
+            .await
+            .unwrap();
+        provider
+            .authenticate(&Credentials::Anonymous)
+            .await
+            .unwrap();
 
         let stats = provider.stats().await;
         assert_eq!(stats.auth_attempts, 2);
@@ -271,9 +280,18 @@ mod tests {
         };
 
         // Authorize multiple times
-        provider.authorize(&identity, "cap1", &serde_json::json!({})).await.unwrap();
-        provider.authorize(&identity, "cap2", &serde_json::json!({})).await.unwrap();
-        provider.authorize(&identity, "cap3", &serde_json::json!({})).await.unwrap();
+        provider
+            .authorize(&identity, "cap1", &serde_json::json!({}))
+            .await
+            .unwrap();
+        provider
+            .authorize(&identity, "cap2", &serde_json::json!({}))
+            .await
+            .unwrap();
+        provider
+            .authorize(&identity, "cap3", &serde_json::json!({}))
+            .await
+            .unwrap();
 
         let stats = provider.stats().await;
         assert_eq!(stats.authz_checks, 3);
