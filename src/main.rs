@@ -2,6 +2,8 @@
 
 use anyhow::Result;
 
+#[cfg(feature = "grpc")]
+mod adapters;
 mod admission_pipeline;
 mod attestation_utils;
 mod audit;
@@ -10,9 +12,15 @@ mod capabilities;
 mod capability;
 mod commands;
 mod config;
+#[cfg(feature = "grpc")]
+mod core;
+#[cfg(feature = "grpc")]
+mod desktop;
 mod health;
 mod idempotency;
 mod intent;
+#[cfg(feature = "grpc")]
+mod isolation;
 mod isolation_tests;
 mod metrics;
 mod nats;

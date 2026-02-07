@@ -37,6 +37,8 @@ pub mod capability;
 pub mod commands;
 pub mod config;
 pub mod core;
+#[cfg(feature = "grpc")]
+pub mod desktop;
 pub mod health;
 pub mod idempotency;
 pub mod intent;
