@@ -16,11 +16,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
+use super::intent::Command;
 use super::isolation::{
     BackendCapabilities, ExecContext, ExecOutput, IsolationBackend, Sandbox, SandboxCapabilities,
     SandboxSpec,
 };
-use super::intent::Command;
 
 /// Unique identifier for a sandbox
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -151,8 +151,8 @@ pub struct SessionTimeouts {
 impl Default for SessionTimeouts {
     fn default() -> Self {
         Self {
-            idle_timeout: Duration::from_secs(300),     // 5 minutes
-            detach_timeout: Duration::from_secs(3600),  // 1 hour
+            idle_timeout: Duration::from_secs(300),      // 5 minutes
+            detach_timeout: Duration::from_secs(3600),   // 1 hour
             suspend_timeout: Duration::from_secs(86400), // 24 hours
         }
     }
@@ -302,7 +302,22 @@ pub trait SandboxManager: Send + Sync {
     async fn get_session(&self, session_id: &str) -> Result<Option<SandboxSession>>;
 
     /// Get session by sandbox ID
-    async fn get_session_by_sandbox(&self, sandbox_id: &SandboxId) -> Result<Option<SandboxSession>>;
+    async fn get_session_by_sandbox(
+        &self,
+        sandbox_id: &SandboxId,
+    ) -> Result<Option<SandboxSession>>;
+
+    /// Get active session for a client (for session reuse)
+    async fn get_session_by_client(&self, client_id: &str) -> Result<Option<SandboxSession>>;
+
+    /// Get a sandbox by ID (for executing operations)
+    async fn get_sandbox(&self, sandbox_id: &SandboxId) -> Result<Option<Arc<dyn Sandbox>>>;
+
+    /// Set the default sandbox ID (used when no sandbox is specified)
+    async fn set_default_sandbox(&self, sandbox_id: Option<SandboxId>) -> Result<()>;
+
+    /// Get the default sandbox ID
+    async fn get_default_sandbox(&self) -> Option<SandboxId>;
 
     /// Clean up timed-out sessions and sandboxes
     async fn cleanup_expired(&self) -> Result<u64>;
@@ -322,6 +337,8 @@ pub struct DefaultSandboxManager {
     pool: tokio::sync::RwLock<Vec<(SandboxSpec, Arc<dyn Sandbox>)>>,
     config: SandboxManagerConfig,
     stats: tokio::sync::RwLock<SandboxManagerStats>,
+    /// The default sandbox ID to use when no sandbox is specified
+    default_sandbox_id: tokio::sync::RwLock<Option<SandboxId>>,
 }
 
 /// Configuration for the sandbox manager
@@ -392,6 +409,7 @@ impl DefaultSandboxManager {
             pool: tokio::sync::RwLock::new(Vec::new()),
             config,
             stats: tokio::sync::RwLock::new(SandboxManagerStats::default()),
+            default_sandbox_id: tokio::sync::RwLock::new(None),
         }
     }
 
@@ -600,7 +618,11 @@ impl SandboxManager for DefaultSandboxManager {
         if request.create_if_missing {
             if let Some(spec) = request.create_spec {
                 let (session, sandbox) = self
-                    .acquire(&spec, &SandboxSelectionOptions::default(), &request.client_id)
+                    .acquire(
+                        &spec,
+                        &SandboxSelectionOptions::default(),
+                        &request.client_id,
+                    )
                     .await?;
 
                 let capabilities = sandbox.capabilities().clone();
@@ -682,12 +704,38 @@ impl SandboxManager for DefaultSandboxManager {
         Ok(sessions.get(session_id).cloned())
     }
 
-    async fn get_session_by_sandbox(&self, sandbox_id: &SandboxId) -> Result<Option<SandboxSession>> {
+    async fn get_session_by_sandbox(
+        &self,
+        sandbox_id: &SandboxId,
+    ) -> Result<Option<SandboxSession>> {
         let sessions = self.sessions.read().await;
         Ok(sessions
             .values()
             .find(|s| s.sandbox_id == *sandbox_id)
             .cloned())
+    }
+
+    async fn get_sandbox(&self, sandbox_id: &SandboxId) -> Result<Option<Arc<dyn Sandbox>>> {
+        let sandboxes = self.sandboxes.read().await;
+        Ok(sandboxes.get(sandbox_id).cloned())
+    }
+
+    async fn get_session_by_client(&self, client_id: &str) -> Result<Option<SandboxSession>> {
+        let sessions = self.sessions.read().await;
+        Ok(sessions
+            .values()
+            .find(|s| s.client_id == client_id && s.state == SessionState::Active)
+            .cloned())
+    }
+
+    async fn set_default_sandbox(&self, sandbox_id: Option<SandboxId>) -> Result<()> {
+        let mut default = self.default_sandbox_id.write().await;
+        *default = sandbox_id;
+        Ok(())
+    }
+
+    async fn get_default_sandbox(&self) -> Option<SandboxId> {
+        self.default_sandbox_id.read().await.clone()
     }
 
     async fn cleanup_expired(&self) -> Result<u64> {

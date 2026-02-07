@@ -18,11 +18,14 @@ use crate::core::ingest::{
     AdapterConfigInfo, AdapterStats, HealthStatus, IngestAdapter, IntentHandler, OutputChunk,
     RequestContext,
 };
+use crate::core::intent::Command;
 use crate::core::intent::{
     IntentRequest, IntentResponse, IntentStatus, RequestConstraints, RequestMetadata,
     SandboxPreferences,
 };
-use crate::core::isolation::{ResourceLimits as CoreResourceLimits, SandboxSpec};
+use crate::core::isolation::{
+    ExecContext as SandboxExecContext, ResourceLimits as CoreResourceLimits, SandboxSpec,
+};
 use crate::core::sandbox::{SandboxId, SandboxManager, SandboxSelectionOptions};
 
 // Include generated proto code
@@ -33,10 +36,11 @@ pub mod proto {
 use proto::agentd_server::{Agentd, AgentdServer};
 use proto::{
     AttachSandboxRequest, AttachSandboxResponse, CreateSandboxRequest, CreateSandboxResponse,
-    ExecuteOutput, ExecuteRequest, ExecuteResponse, ExecutionResult, ExecutionStatus,
-    GetSandboxCapabilitiesRequest, HealthRequest, HealthResponse, ListCapabilitiesRequest,
-    ListCapabilitiesResponse, ListSandboxesRequest, ListSandboxesResponse, SandboxCapabilities,
-    TerminateSandboxRequest, TerminateSandboxResponse,
+    EditFileRequest, EditFileResponse, ExecuteOutput, ExecuteRequest, ExecuteResponse,
+    ExecutionResult, ExecutionStatus, GetSandboxCapabilitiesRequest, HealthRequest, HealthResponse,
+    ListCapabilitiesRequest, ListCapabilitiesResponse, ListSandboxesRequest, ListSandboxesResponse,
+    ReadFileRequest, ReadFileResponse, SandboxCapabilities, TerminateSandboxRequest,
+    TerminateSandboxResponse, WriteFileRequest, WriteFileResponse,
 };
 
 /// Configuration for the gRPC adapter
@@ -62,6 +66,15 @@ pub struct GrpcConfig {
 
     /// Request timeout in seconds
     pub request_timeout_secs: Option<u64>,
+
+    /// Default read-only paths for sandboxes (used when client doesn't specify)
+    pub default_allowed_paths_ro: Vec<std::path::PathBuf>,
+
+    /// Default read-write paths for sandboxes (used when client doesn't specify)
+    pub default_allowed_paths_rw: Vec<std::path::PathBuf>,
+
+    /// Default bind mounts (source -> target path mappings)
+    pub default_bind_mounts: Vec<crate::core::isolation::BindMount>,
 }
 
 impl Default for GrpcConfig {
@@ -74,6 +87,9 @@ impl Default for GrpcConfig {
             max_frame_size: Some(16 * 1024 * 1024), // 16MB
             keepalive_interval_secs: Some(30),
             request_timeout_secs: Some(300),
+            default_allowed_paths_ro: vec![],
+            default_allowed_paths_rw: vec![],
+            default_bind_mounts: vec![],
         }
     }
 }
@@ -126,6 +142,36 @@ impl GrpcAdapter {
         })
     }
 
+    /// Create a new adapter with address and default sandbox paths
+    pub fn with_sandbox_defaults(
+        address: SocketAddr,
+        default_paths_ro: Vec<std::path::PathBuf>,
+        default_paths_rw: Vec<std::path::PathBuf>,
+    ) -> Self {
+        Self::new(GrpcConfig {
+            listen_address: address,
+            default_allowed_paths_ro: default_paths_ro,
+            default_allowed_paths_rw: default_paths_rw,
+            ..Default::default()
+        })
+    }
+
+    /// Create a new adapter with address, default sandbox paths, and bind mounts
+    pub fn with_sandbox_defaults_and_mounts(
+        address: SocketAddr,
+        default_paths_ro: Vec<std::path::PathBuf>,
+        default_paths_rw: Vec<std::path::PathBuf>,
+        default_bind_mounts: Vec<crate::core::isolation::BindMount>,
+    ) -> Self {
+        Self::new(GrpcConfig {
+            listen_address: address,
+            default_allowed_paths_ro: default_paths_ro,
+            default_allowed_paths_rw: default_paths_rw,
+            default_bind_mounts,
+            ..Default::default()
+        })
+    }
+
     /// Set the sandbox manager for this adapter
     pub async fn set_sandbox_manager(&self, manager: Arc<dyn SandboxManager>) {
         let mut sm = self.sandbox_manager.write().await;
@@ -173,6 +219,9 @@ impl IngestAdapter for GrpcAdapter {
                 requests_failed: AtomicU64::new(0),
                 requests_in_flight: AtomicU64::new(0),
             }),
+            default_allowed_paths_ro: self.config.default_allowed_paths_ro.clone(),
+            default_allowed_paths_rw: self.config.default_allowed_paths_rw.clone(),
+            default_bind_mounts: self.config.default_bind_mounts.clone(),
         };
 
         let addr = self.config.listen_address;
@@ -294,6 +343,12 @@ struct GrpcService {
     handler: Arc<dyn IntentHandler>,
     sandbox_manager: Option<Arc<dyn SandboxManager>>,
     stats: Arc<ServiceStats>,
+    /// Default read-only paths for sandboxes
+    default_allowed_paths_ro: Vec<std::path::PathBuf>,
+    /// Default read-write paths for sandboxes
+    default_allowed_paths_rw: Vec<std::path::PathBuf>,
+    /// Default bind mounts (source -> target path mappings)
+    default_bind_mounts: Vec<crate::core::isolation::BindMount>,
 }
 
 impl GrpcService {
@@ -307,6 +362,57 @@ impl GrpcService {
             supports_streaming: true,
             metadata: vec![],
         }
+    }
+
+    /// Resolve sandbox for file operations: explicit ID > client session > default sandbox
+    async fn resolve_sandbox_for_file_op(
+        &self,
+        explicit_sandbox_id: &str,
+        client_id: &str,
+    ) -> Result<Arc<dyn crate::core::isolation::Sandbox>, Status> {
+        let manager = self
+            .sandbox_manager
+            .as_ref()
+            .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
+
+        // 1. If explicit sandbox_id provided, use that
+        if !explicit_sandbox_id.is_empty() {
+            let sandbox_id = SandboxId::from_string(explicit_sandbox_id);
+            return manager
+                .get_sandbox(&sandbox_id)
+                .await
+                .map_err(|e| Status::internal(format!("Failed to get sandbox: {}", e)))?
+                .ok_or_else(|| {
+                    Status::not_found(format!("Sandbox {} not found", explicit_sandbox_id))
+                });
+        }
+
+        // 2. Check for existing session for this client
+        if !client_id.is_empty() {
+            if let Ok(Some(session)) = manager.get_session_by_client(client_id).await {
+                if let Ok(Some(sandbox)) = manager.get_sandbox(&session.sandbox_id).await {
+                    return Ok(sandbox);
+                }
+            }
+        }
+
+        // 3. Check for default sandbox
+        if let Some(default_id) = manager.get_default_sandbox().await {
+            return manager
+                .get_sandbox(&default_id)
+                .await
+                .map_err(|e| Status::internal(format!("Failed to get default sandbox: {}", e)))?
+                .ok_or_else(|| {
+                    Status::failed_precondition(
+                        "Default sandbox not found - it may have been terminated",
+                    )
+                });
+        }
+
+        // 4. No sandbox available
+        Err(Status::failed_precondition(
+            "No sandbox configured. A sandbox must be created by the user before file operations can run."
+        ))
     }
 
     fn convert_request(&self, req: &ExecuteRequest) -> IntentRequest {
@@ -462,7 +568,9 @@ impl Agentd for GrpcService {
         request: Request<ExecuteRequest>,
     ) -> Result<Response<ExecuteResponse>, Status> {
         self.stats.requests_received.fetch_add(1, Ordering::Relaxed);
-        self.stats.requests_in_flight.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .requests_in_flight
+            .fetch_add(1, Ordering::Relaxed);
 
         let req = request.into_inner();
         let ctx = self.build_request_context(&req.request_id);
@@ -470,11 +578,15 @@ impl Agentd for GrpcService {
 
         let result = self.handler.handle(intent_request, ctx).await;
 
-        self.stats.requests_in_flight.fetch_sub(1, Ordering::Relaxed);
+        self.stats
+            .requests_in_flight
+            .fetch_sub(1, Ordering::Relaxed);
 
         match result {
             Ok(response) => {
-                self.stats.requests_succeeded.fetch_add(1, Ordering::Relaxed);
+                self.stats
+                    .requests_succeeded
+                    .fetch_add(1, Ordering::Relaxed);
                 Ok(Response::new(self.convert_response(response)))
             }
             Err(e) => {
@@ -493,7 +605,9 @@ impl Agentd for GrpcService {
         request: Request<ExecuteRequest>,
     ) -> Result<Response<Self::ExecuteStreamStream>, Status> {
         self.stats.requests_received.fetch_add(1, Ordering::Relaxed);
-        self.stats.requests_in_flight.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .requests_in_flight
+            .fetch_add(1, Ordering::Relaxed);
 
         let req = request.into_inner();
         let ctx = self.build_request_context(&req.request_id);
@@ -521,10 +635,9 @@ impl Agentd for GrpcService {
                             output: Some(proto::execute_output::Output::StderrChunk(data)),
                         },
                         OutputChunk::Progress { percent, message } => ExecuteOutput {
-                            output: Some(proto::execute_output::Output::Progress(proto::Progress {
-                                percent,
-                                message,
-                            })),
+                            output: Some(proto::execute_output::Output::Progress(
+                                proto::Progress { percent, message },
+                            )),
                         },
                         OutputChunk::Log { level, message } => ExecuteOutput {
                             output: Some(proto::execute_output::Output::Log(proto::LogMessage {
@@ -543,7 +656,9 @@ impl Agentd for GrpcService {
             });
 
             // Execute the request
-            let result = handler.handle_streaming(intent_request, ctx, output_tx).await;
+            let result = handler
+                .handle_streaming(intent_request, ctx, output_tx)
+                .await;
 
             // Wait for forwarding to complete
             let _ = forward_handle.await;
@@ -604,7 +719,11 @@ impl Agentd for GrpcService {
         let status = self.handler.health().await;
 
         let (healthy, status_str, details) = match status {
-            HealthStatus::Healthy => (true, "healthy".to_string(), std::collections::HashMap::new()),
+            HealthStatus::Healthy => (
+                true,
+                "healthy".to_string(),
+                std::collections::HashMap::new(),
+            ),
             HealthStatus::Degraded { reason } => {
                 let mut d = std::collections::HashMap::new();
                 d.insert("reason".to_string(), reason);
@@ -615,12 +734,16 @@ impl Agentd for GrpcService {
                 d.insert("reason".to_string(), reason);
                 (false, "unhealthy".to_string(), d)
             }
-            HealthStatus::Starting => {
-                (false, "starting".to_string(), std::collections::HashMap::new())
-            }
-            HealthStatus::Stopping => {
-                (false, "stopping".to_string(), std::collections::HashMap::new())
-            }
+            HealthStatus::Starting => (
+                false,
+                "starting".to_string(),
+                std::collections::HashMap::new(),
+            ),
+            HealthStatus::Stopping => (
+                false,
+                "stopping".to_string(),
+                std::collections::HashMap::new(),
+            ),
         };
 
         Ok(Response::new(HealthResponse {
@@ -634,10 +757,14 @@ impl Agentd for GrpcService {
         &self,
         request: Request<ListSandboxesRequest>,
     ) -> Result<Response<ListSandboxesResponse>, Status> {
-        let manager = self.sandbox_manager.as_ref()
+        let manager = self
+            .sandbox_manager
+            .as_ref()
             .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
 
-        let sessions = manager.list_sessions().await
+        let sessions = manager
+            .list_sessions()
+            .await
             .map_err(|e| Status::internal(format!("Failed to list sessions: {}", e)))?;
 
         let _state_filter = &request.get_ref().state_filter;
@@ -661,35 +788,100 @@ impl Agentd for GrpcService {
         &self,
         request: Request<CreateSandboxRequest>,
     ) -> Result<Response<CreateSandboxResponse>, Status> {
-        let manager = self.sandbox_manager.as_ref()
+        let manager = self
+            .sandbox_manager
+            .as_ref()
             .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
 
         let req = request.get_ref();
 
         // Convert proto ResourceLimits to core ResourceLimits
-        let limits = req.limits.as_ref().map(|l| CoreResourceLimits {
-            max_memory_bytes: if l.max_memory_bytes > 0 { Some(l.max_memory_bytes) } else { None },
-            max_cpu_time_ms: if l.max_cpu_time_ms > 0 { Some(l.max_cpu_time_ms) } else { None },
-            max_wall_time_ms: if l.max_wall_time_ms > 0 { Some(l.max_wall_time_ms) } else { None },
-            max_processes: if l.max_processes > 0 { Some(l.max_processes) } else { None },
-            max_open_files: if l.max_open_files > 0 { Some(l.max_open_files) } else { None },
-            max_output_bytes: if l.max_output_bytes > 0 { Some(l.max_output_bytes) } else { None },
-            max_write_bytes: if l.max_write_bytes > 0 { Some(l.max_write_bytes) } else { None },
-            cpu_weight: None,
-        }).unwrap_or_default();
+        let limits = req
+            .limits
+            .as_ref()
+            .map(|l| CoreResourceLimits {
+                max_memory_bytes: if l.max_memory_bytes > 0 {
+                    Some(l.max_memory_bytes)
+                } else {
+                    None
+                },
+                max_cpu_time_ms: if l.max_cpu_time_ms > 0 {
+                    Some(l.max_cpu_time_ms)
+                } else {
+                    None
+                },
+                max_wall_time_ms: if l.max_wall_time_ms > 0 {
+                    Some(l.max_wall_time_ms)
+                } else {
+                    None
+                },
+                max_processes: if l.max_processes > 0 {
+                    Some(l.max_processes)
+                } else {
+                    None
+                },
+                max_open_files: if l.max_open_files > 0 {
+                    Some(l.max_open_files)
+                } else {
+                    None
+                },
+                max_output_bytes: if l.max_output_bytes > 0 {
+                    Some(l.max_output_bytes)
+                } else {
+                    None
+                },
+                max_write_bytes: if l.max_write_bytes > 0 {
+                    Some(l.max_write_bytes)
+                } else {
+                    None
+                },
+                cpu_weight: None,
+            })
+            .unwrap_or_default();
+
+        // Use client-specified paths or fall back to server defaults
+        let allowed_paths_ro = if req.allowed_paths_ro.is_empty() {
+            self.default_allowed_paths_ro.clone()
+        } else {
+            req.allowed_paths_ro
+                .iter()
+                .map(std::path::PathBuf::from)
+                .collect()
+        };
+        let allowed_paths_rw = if req.allowed_paths_rw.is_empty() {
+            self.default_allowed_paths_rw.clone()
+        } else {
+            req.allowed_paths_rw
+                .iter()
+                .map(std::path::PathBuf::from)
+                .collect()
+        };
 
         let spec = SandboxSpec {
-            profile: if req.profile.is_empty() { "default".to_string() } else { req.profile.clone() },
-            workdir: std::path::PathBuf::from(if req.workdir.is_empty() { "/workspace" } else { &req.workdir }),
-            allowed_paths_ro: req.allowed_paths_ro.iter().map(std::path::PathBuf::from).collect(),
-            allowed_paths_rw: req.allowed_paths_rw.iter().map(std::path::PathBuf::from).collect(),
+            profile: if req.profile.is_empty() {
+                "default".to_string()
+            } else {
+                req.profile.clone()
+            },
+            workdir: std::path::PathBuf::from(if req.workdir.is_empty() {
+                "/workspace"
+            } else {
+                &req.workdir
+            }),
+            allowed_paths_ro,
+            allowed_paths_rw,
+            bind_mounts: self.default_bind_mounts.clone(),
             allowed_network: vec![],
             environment: vec![],
             limits,
             network_enabled: req.network_enabled,
             seccomp_profile: None,
             creation_timeout: std::time::Duration::from_secs(30),
-            labels: req.labels.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            labels: req
+                .labels
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         };
 
         let options = SandboxSelectionOptions {
@@ -701,7 +893,9 @@ impl Agentd for GrpcService {
             use_pool: false,
         };
 
-        let (session, sandbox) = manager.acquire(&spec, &options, "grpc-client").await
+        let (session, sandbox) = manager
+            .acquire(&spec, &options, "grpc-client")
+            .await
             .map_err(|e| Status::internal(format!("Failed to create sandbox: {}", e)))?;
 
         let caps = sandbox.capabilities();
@@ -717,14 +911,18 @@ impl Agentd for GrpcService {
         &self,
         request: Request<AttachSandboxRequest>,
     ) -> Result<Response<AttachSandboxResponse>, Status> {
-        let manager = self.sandbox_manager.as_ref()
+        let manager = self
+            .sandbox_manager
+            .as_ref()
             .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
 
         let req = request.get_ref();
         let sandbox_id = SandboxId::from_string(&req.sandbox_id);
 
         // Check if sandbox exists
-        if let Some(session) = manager.get_session_by_sandbox(&sandbox_id).await
+        if let Some(session) = manager
+            .get_session_by_sandbox(&sandbox_id)
+            .await
             .map_err(|e| Status::internal(format!("Failed to get session: {}", e)))?
         {
             // Sandbox exists, return session info
@@ -738,36 +936,105 @@ impl Agentd for GrpcService {
 
         // Sandbox doesn't exist - create if requested
         if !req.create_if_missing {
-            return Err(Status::not_found(format!("Sandbox {} not found", req.sandbox_id)));
+            return Err(Status::not_found(format!(
+                "Sandbox {} not found",
+                req.sandbox_id
+            )));
         }
 
         // Create new sandbox with provided spec
-        let create_spec = req.create_spec.as_ref()
-            .ok_or_else(|| Status::invalid_argument("create_spec required when create_if_missing is true"))?;
+        let create_spec = req.create_spec.as_ref().ok_or_else(|| {
+            Status::invalid_argument("create_spec required when create_if_missing is true")
+        })?;
 
-        let limits = create_spec.limits.as_ref().map(|l| CoreResourceLimits {
-            max_memory_bytes: if l.max_memory_bytes > 0 { Some(l.max_memory_bytes) } else { None },
-            max_cpu_time_ms: if l.max_cpu_time_ms > 0 { Some(l.max_cpu_time_ms) } else { None },
-            max_wall_time_ms: if l.max_wall_time_ms > 0 { Some(l.max_wall_time_ms) } else { None },
-            max_processes: if l.max_processes > 0 { Some(l.max_processes) } else { None },
-            max_open_files: if l.max_open_files > 0 { Some(l.max_open_files) } else { None },
-            max_output_bytes: if l.max_output_bytes > 0 { Some(l.max_output_bytes) } else { None },
-            max_write_bytes: if l.max_write_bytes > 0 { Some(l.max_write_bytes) } else { None },
-            cpu_weight: None,
-        }).unwrap_or_default();
+        let limits = create_spec
+            .limits
+            .as_ref()
+            .map(|l| CoreResourceLimits {
+                max_memory_bytes: if l.max_memory_bytes > 0 {
+                    Some(l.max_memory_bytes)
+                } else {
+                    None
+                },
+                max_cpu_time_ms: if l.max_cpu_time_ms > 0 {
+                    Some(l.max_cpu_time_ms)
+                } else {
+                    None
+                },
+                max_wall_time_ms: if l.max_wall_time_ms > 0 {
+                    Some(l.max_wall_time_ms)
+                } else {
+                    None
+                },
+                max_processes: if l.max_processes > 0 {
+                    Some(l.max_processes)
+                } else {
+                    None
+                },
+                max_open_files: if l.max_open_files > 0 {
+                    Some(l.max_open_files)
+                } else {
+                    None
+                },
+                max_output_bytes: if l.max_output_bytes > 0 {
+                    Some(l.max_output_bytes)
+                } else {
+                    None
+                },
+                max_write_bytes: if l.max_write_bytes > 0 {
+                    Some(l.max_write_bytes)
+                } else {
+                    None
+                },
+                cpu_weight: None,
+            })
+            .unwrap_or_default();
+
+        // Use client-specified paths or fall back to server defaults
+        let allowed_paths_ro = if create_spec.allowed_paths_ro.is_empty() {
+            self.default_allowed_paths_ro.clone()
+        } else {
+            create_spec
+                .allowed_paths_ro
+                .iter()
+                .map(std::path::PathBuf::from)
+                .collect()
+        };
+        let allowed_paths_rw = if create_spec.allowed_paths_rw.is_empty() {
+            self.default_allowed_paths_rw.clone()
+        } else {
+            create_spec
+                .allowed_paths_rw
+                .iter()
+                .map(std::path::PathBuf::from)
+                .collect()
+        };
 
         let spec = SandboxSpec {
-            profile: if create_spec.profile.is_empty() { "default".to_string() } else { create_spec.profile.clone() },
-            workdir: std::path::PathBuf::from(if create_spec.workdir.is_empty() { "/workspace" } else { &create_spec.workdir }),
-            allowed_paths_ro: create_spec.allowed_paths_ro.iter().map(std::path::PathBuf::from).collect(),
-            allowed_paths_rw: create_spec.allowed_paths_rw.iter().map(std::path::PathBuf::from).collect(),
+            profile: if create_spec.profile.is_empty() {
+                "default".to_string()
+            } else {
+                create_spec.profile.clone()
+            },
+            workdir: std::path::PathBuf::from(if create_spec.workdir.is_empty() {
+                "/workspace"
+            } else {
+                &create_spec.workdir
+            }),
+            allowed_paths_ro,
+            allowed_paths_rw,
+            bind_mounts: self.default_bind_mounts.clone(),
             allowed_network: vec![],
             environment: vec![],
             limits,
             network_enabled: create_spec.network_enabled,
             seccomp_profile: None,
             creation_timeout: std::time::Duration::from_secs(30),
-            labels: create_spec.labels.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            labels: create_spec
+                .labels
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         };
 
         let options = SandboxSelectionOptions {
@@ -779,7 +1046,9 @@ impl Agentd for GrpcService {
             use_pool: false,
         };
 
-        let (session, sandbox) = manager.acquire(&spec, &options, "grpc-client").await
+        let (session, sandbox) = manager
+            .acquire(&spec, &options, "grpc-client")
+            .await
             .map_err(|e| Status::internal(format!("Failed to create sandbox: {}", e)))?;
 
         let caps = sandbox.capabilities();
@@ -797,19 +1066,25 @@ impl Agentd for GrpcService {
         &self,
         request: Request<TerminateSandboxRequest>,
     ) -> Result<Response<TerminateSandboxResponse>, Status> {
-        let manager = self.sandbox_manager.as_ref()
+        let manager = self
+            .sandbox_manager
+            .as_ref()
             .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
 
         let req = request.get_ref();
         let sandbox_id = SandboxId::from_string(&req.sandbox_id);
 
         // Find session for this sandbox
-        let session = manager.get_session_by_sandbox(&sandbox_id).await
+        let session = manager
+            .get_session_by_sandbox(&sandbox_id)
+            .await
             .map_err(|e| Status::internal(format!("Failed to get session: {}", e)))?
             .ok_or_else(|| Status::not_found(format!("Sandbox {} not found", req.sandbox_id)))?;
 
         // Terminate the session
-        manager.terminate(&session).await
+        manager
+            .terminate(&session)
+            .await
             .map_err(|e| Status::internal(format!("Failed to terminate sandbox: {}", e)))?;
 
         Ok(Response::new(TerminateSandboxResponse {
@@ -822,14 +1097,18 @@ impl Agentd for GrpcService {
         &self,
         request: Request<GetSandboxCapabilitiesRequest>,
     ) -> Result<Response<SandboxCapabilities>, Status> {
-        let manager = self.sandbox_manager.as_ref()
+        let manager = self
+            .sandbox_manager
+            .as_ref()
             .ok_or_else(|| Status::unavailable("Sandbox manager not configured"))?;
 
         let req = request.get_ref();
         let sandbox_id = SandboxId::from_string(&req.sandbox_id);
 
         // Find session for this sandbox
-        let session = manager.get_session_by_sandbox(&sandbox_id).await
+        let session = manager
+            .get_session_by_sandbox(&sandbox_id)
+            .await
             .map_err(|e| Status::internal(format!("Failed to get session: {}", e)))?
             .ok_or_else(|| Status::not_found(format!("Sandbox {} not found", req.sandbox_id)))?;
 
@@ -855,17 +1134,294 @@ impl Agentd for GrpcService {
 
         Ok(Response::new(capabilities))
     }
+
+    // =========================================================================
+    // File Operations (sandboxed via shell commands)
+    //
+    // These operations execute within the sandbox context using shell commands,
+    // ensuring Landlock/seccomp policies are enforced.
+    // =========================================================================
+
+    async fn read_file(
+        &self,
+        request: Request<ReadFileRequest>,
+    ) -> Result<Response<ReadFileResponse>, Status> {
+        let req = request.get_ref();
+
+        // Resolve sandbox: explicit ID > client session > default
+        // TODO: Extract client_id from gRPC metadata
+        let client_id = "grpc-client";
+        let sandbox = self
+            .resolve_sandbox_for_file_op(&req.sandbox_id, client_id)
+            .await?;
+
+        // Build cat command with optional offset/limit using head/tail
+        let path_escaped = shell_escape::escape(std::borrow::Cow::Borrowed(&req.path));
+        let shell_cmd = if req.offset > 0 && req.limit > 0 {
+            format!(
+                "tail -c +{} {} | head -c {}",
+                req.offset + 1,
+                path_escaped,
+                req.limit
+            )
+        } else if req.offset > 0 {
+            format!("tail -c +{} {}", req.offset + 1, path_escaped)
+        } else if req.limit > 0 {
+            format!("head -c {} {}", req.limit, path_escaped)
+        } else {
+            format!("cat {}", path_escaped)
+        };
+
+        let cmd = Command {
+            program: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), shell_cmd],
+            workdir: None,
+            env: std::collections::HashMap::new(),
+            inherit_env: true,
+            stdin: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        };
+
+        let exec_ctx = SandboxExecContext {
+            trace_id: format!("read-{}", Uuid::new_v4()),
+            request_id: format!("read-{}", Uuid::new_v4()),
+            workdir: None,
+            extra_env: vec![],
+            timeout: Some(std::time::Duration::from_secs(30)),
+            capture_stdout: true,
+            capture_stderr: true,
+            stream_output: false,
+        };
+
+        match sandbox.exec(&cmd, &exec_ctx).await {
+            Ok(result) => {
+                if result.exit_code == 0 {
+                    Ok(Response::new(ReadFileResponse {
+                        success: true,
+                        content: String::from_utf8_lossy(&result.stdout).to_string(),
+                        error: String::new(),
+                        size_bytes: String::from_utf8_lossy(&result.stdout).to_string().len()
+                            as u64,
+                        truncated: req.limit > 0,
+                    }))
+                } else {
+                    Ok(Response::new(ReadFileResponse {
+                        success: false,
+                        content: String::new(),
+                        error: if result.stderr.is_empty() {
+                            format!("Command failed with exit code {}", result.exit_code)
+                        } else {
+                            String::from_utf8_lossy(&result.stderr).to_string()
+                        },
+                        size_bytes: 0,
+                        truncated: false,
+                    }))
+                }
+            }
+            Err(e) => Ok(Response::new(ReadFileResponse {
+                success: false,
+                content: String::new(),
+                error: format!("Execution failed: {}", e),
+                size_bytes: 0,
+                truncated: false,
+            })),
+        }
+    }
+
+    async fn write_file(
+        &self,
+        request: Request<WriteFileRequest>,
+    ) -> Result<Response<WriteFileResponse>, Status> {
+        use base64::Engine;
+
+        let req = request.get_ref();
+
+        // Resolve sandbox: explicit ID > client session > default
+        // TODO: Extract client_id from gRPC metadata
+        let client_id = "grpc-client";
+        let sandbox = self
+            .resolve_sandbox_for_file_op(&req.sandbox_id, client_id)
+            .await?;
+
+        let path_escaped = shell_escape::escape(std::borrow::Cow::Borrowed(&req.path));
+
+        // Build command: create dirs if needed, then write content
+        let mut commands = Vec::new();
+
+        if req.create_dirs {
+            let dir = std::path::Path::new(&req.path)
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if !dir.is_empty() {
+                let dir_escaped = shell_escape::escape(std::borrow::Cow::Borrowed(&dir));
+                commands.push(format!("mkdir -p {}", dir_escaped));
+            }
+        }
+
+        // Use base64 to safely pass content through shell
+        let redirect = if req.append { ">>" } else { ">" };
+        let content_b64 = base64::engine::general_purpose::STANDARD.encode(&req.content);
+        commands.push(format!(
+            "echo '{}' | base64 -d {} {}",
+            content_b64, redirect, path_escaped
+        ));
+
+        let shell_cmd = commands.join(" && ");
+
+        let cmd = Command {
+            program: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), shell_cmd],
+            workdir: None,
+            env: std::collections::HashMap::new(),
+            inherit_env: true,
+            stdin: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        };
+
+        let exec_ctx = SandboxExecContext {
+            trace_id: format!("write-{}", Uuid::new_v4()),
+            request_id: format!("write-{}", Uuid::new_v4()),
+            workdir: None,
+            extra_env: vec![],
+            timeout: Some(std::time::Duration::from_secs(30)),
+            capture_stdout: true,
+            capture_stderr: true,
+            stream_output: false,
+        };
+
+        match sandbox.exec(&cmd, &exec_ctx).await {
+            Ok(result) => {
+                if result.exit_code == 0 {
+                    Ok(Response::new(WriteFileResponse {
+                        success: true,
+                        error: String::new(),
+                        bytes_written: req.content.len() as u64,
+                    }))
+                } else {
+                    Ok(Response::new(WriteFileResponse {
+                        success: false,
+                        error: if result.stderr.is_empty() {
+                            format!("Command failed with exit code {}", result.exit_code)
+                        } else {
+                            String::from_utf8_lossy(&result.stderr).to_string()
+                        },
+                        bytes_written: 0,
+                    }))
+                }
+            }
+            Err(e) => Ok(Response::new(WriteFileResponse {
+                success: false,
+                error: format!("Execution failed: {}", e),
+                bytes_written: 0,
+            })),
+        }
+    }
+
+    async fn edit_file(
+        &self,
+        request: Request<EditFileRequest>,
+    ) -> Result<Response<EditFileResponse>, Status> {
+        let req = request.get_ref();
+
+        // Resolve sandbox: explicit ID > client session > default
+        // TODO: Extract client_id from gRPC metadata
+        let client_id = "grpc-client";
+        let sandbox = self
+            .resolve_sandbox_for_file_op(&req.sandbox_id, client_id)
+            .await?;
+
+        let path_escaped = shell_escape::escape(std::borrow::Cow::Borrowed(&req.path));
+
+        // Use sed for replacement - escape special sed characters
+        let old_escaped = req
+            .old_string
+            .replace('\\', "\\\\")
+            .replace('/', "\\/")
+            .replace('&', "\\&")
+            .replace('\n', "\\n");
+        let new_escaped = req
+            .new_string
+            .replace('\\', "\\\\")
+            .replace('/', "\\/")
+            .replace('&', "\\&")
+            .replace('\n', "\\n");
+
+        let sed_flags = if req.replace_all { "g" } else { "" };
+        let shell_cmd = format!(
+            "sed -i 's/{}/{}/{}' {} && echo 'OK'",
+            old_escaped, new_escaped, sed_flags, path_escaped
+        );
+
+        let cmd = Command {
+            program: "/bin/sh".to_string(),
+            args: vec!["-c".to_string(), shell_cmd],
+            workdir: None,
+            env: std::collections::HashMap::new(),
+            inherit_env: true,
+            stdin: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        };
+
+        let exec_ctx = SandboxExecContext {
+            trace_id: format!("edit-{}", Uuid::new_v4()),
+            request_id: format!("edit-{}", Uuid::new_v4()),
+            workdir: None,
+            extra_env: vec![],
+            timeout: Some(std::time::Duration::from_secs(30)),
+            capture_stdout: true,
+            capture_stderr: true,
+            stream_output: false,
+        };
+
+        match sandbox.exec(&cmd, &exec_ctx).await {
+            Ok(result) => {
+                if result.exit_code == 0 {
+                    Ok(Response::new(EditFileResponse {
+                        success: true,
+                        error: String::new(),
+                        replacements_made: 1, // sed doesn't report count easily
+                    }))
+                } else {
+                    Ok(Response::new(EditFileResponse {
+                        success: false,
+                        error: if result.stderr.is_empty() {
+                            format!("Command failed with exit code {}", result.exit_code)
+                        } else {
+                            String::from_utf8_lossy(&result.stderr).to_string()
+                        },
+                        replacements_made: 0,
+                    }))
+                }
+            }
+            Err(e) => Ok(Response::new(EditFileResponse {
+                success: false,
+                error: format!("Execution failed: {}", e),
+                replacements_made: 0,
+            })),
+        }
+    }
 }
 
 /// Convert core SandboxCapabilities to proto SandboxCapabilities
-fn convert_sandbox_caps_to_proto(caps: &crate::core::isolation::SandboxCapabilities) -> SandboxCapabilities {
+fn convert_sandbox_caps_to_proto(
+    caps: &crate::core::isolation::SandboxCapabilities,
+) -> SandboxCapabilities {
     SandboxCapabilities {
         sandbox_id: caps.sandbox_id.clone(),
         backend: caps.backend.clone(),
         profile: caps.profile.clone(),
         can_write_filesystem: caps.can_write_filesystem,
-        readable_paths: caps.readable_paths.iter().map(|p| p.to_string_lossy().to_string()).collect(),
-        writable_paths: caps.writable_paths.iter().map(|p| p.to_string_lossy().to_string()).collect(),
+        readable_paths: caps
+            .readable_paths
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect(),
+        writable_paths: caps
+            .writable_paths
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect(),
         has_network: caps.has_network,
         allowed_destinations: caps.allowed_destinations.clone(),
         limits: Some(proto::ResourceLimits {

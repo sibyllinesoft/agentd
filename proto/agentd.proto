@@ -24,6 +24,11 @@ service Agentd {
 
     // Introspection
     rpc GetSandboxCapabilities(GetSandboxCapabilitiesRequest) returns (SandboxCapabilities);
+
+    // File operations (sandboxed)
+    rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+    rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
+    rpc EditFile(EditFileRequest) returns (EditFileResponse);
 }
 
 // Execute request
@@ -379,4 +384,58 @@ message SandboxCapabilities {
     bool is_persistent = 12;
     uint64 created_at_ms = 13;
     uint64 time_remaining_ms = 14;
+}
+
+// ============================================================================
+// File Operations (sandboxed)
+// ============================================================================
+
+// Read file request
+message ReadFileRequest {
+    string sandbox_id = 1;
+    string path = 2;
+    // Optional: read only a portion of the file
+    uint64 offset = 3;
+    uint64 limit = 4;  // 0 = no limit
+}
+
+// Read file response
+message ReadFileResponse {
+    bool success = 1;
+    string content = 2;
+    string error = 3;
+    uint64 size_bytes = 4;
+    bool truncated = 5;
+}
+
+// Write file request
+message WriteFileRequest {
+    string sandbox_id = 1;
+    string path = 2;
+    string content = 3;
+    bool create_dirs = 4;  // Create parent directories if needed
+    bool append = 5;       // Append instead of overwrite
+}
+
+// Write file response
+message WriteFileResponse {
+    bool success = 1;
+    string error = 2;
+    uint64 bytes_written = 3;
+}
+
+// Edit file request (search and replace)
+message EditFileRequest {
+    string sandbox_id = 1;
+    string path = 2;
+    string old_string = 3;
+    string new_string = 4;
+    bool replace_all = 5;  // Replace all occurrences
+}
+
+// Edit file response
+message EditFileResponse {
+    bool success = 1;
+    string error = 2;
+    uint32 replacements_made = 3;
 }

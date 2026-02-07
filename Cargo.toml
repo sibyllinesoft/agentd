@@ -149,6 +149,7 @@ async-nats = { workspace = true }
 # Cryptography - Ed25519 signature verification
 ed25519-dalek = { version = "2.1", features = ["serde", "rand_core"] }
 base64 = "0.22"
+shell-escape = "0.1"
 sha2 = { workspace = true }
 
 # JSON Schema validation

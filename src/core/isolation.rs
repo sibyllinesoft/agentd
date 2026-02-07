@@ -69,6 +69,17 @@ impl BackendCapabilities {
     }
 }
 
+/// A bind mount specification mapping a host path to a container path
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BindMount {
+    /// Source path on the host
+    pub source: PathBuf,
+    /// Target path inside the container
+    pub target: PathBuf,
+    /// Whether the mount is read-only
+    pub readonly: bool,
+}
+
 /// Specification for creating a new sandbox
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SandboxSpec {
@@ -83,6 +94,10 @@ pub struct SandboxSpec {
 
     /// Allowed filesystem paths (read-write)
     pub allowed_paths_rw: Vec<PathBuf>,
+
+    /// Custom bind mounts with explicit source->target mapping
+    /// These take precedence over allowed_paths_* for path mapping
+    pub bind_mounts: Vec<BindMount>,
 
     /// Allowed network destinations (host:port or CIDR)
     pub allowed_network: Vec<String>,
@@ -113,6 +128,7 @@ impl Default for SandboxSpec {
             workdir: PathBuf::from("/workspace"),
             allowed_paths_ro: vec![],
             allowed_paths_rw: vec![],
+            bind_mounts: vec![],
             allowed_network: vec![],
             environment: vec![],
             limits: ResourceLimits::default(),
@@ -156,7 +172,7 @@ impl Default for ResourceLimits {
     fn default() -> Self {
         Self {
             max_memory_bytes: Some(512 * 1024 * 1024), // 512 MB
-            max_cpu_time_ms: Some(60_000),              // 60 seconds
+            max_cpu_time_ms: Some(60_000),             // 60 seconds
             max_wall_time_ms: Some(120_000),           // 2 minutes
             max_processes: Some(64),
             max_open_files: Some(256),
