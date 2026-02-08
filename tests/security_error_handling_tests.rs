@@ -30,12 +30,18 @@ async fn test_validation_error_handling() -> Result<()> {
     let validation_test_cases = vec![
         (json!({ "command": "" }), "empty command"),
         (json!({}), "missing command"),
-        (json!({ "command": "echo", "timeout_ms": 0 }), "invalid timeout"),
+        (
+            json!({ "command": "echo", "timeout_ms": 0 }),
+            "invalid timeout",
+        ),
         (
             json!({ "command": "echo", "timeout_ms": 999_999 }),
             "timeout too large",
         ),
-        (json!({ "command": "echo", "forbidden_param": "value" }), "unsupported param"),
+        (
+            json!({ "command": "echo", "forbidden_param": "value" }),
+            "unsupported param",
+        ),
         (json!({ "command": 123 }), "invalid command type"),
     ];
 

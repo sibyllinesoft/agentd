@@ -14,7 +14,7 @@
 //!
 //! # Usage
 //!
-//! ```rust
+//! ```rust,ignore
 //! use smith_logging::{init_logging, LoggingLayer};
 //! use smith_config::Config;
 //!

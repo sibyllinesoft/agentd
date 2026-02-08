@@ -93,7 +93,10 @@ async fn test_filesystem_isolation_penetration() -> Result<()> {
     );
 
     assert!(
-        capability.execute(legitimate_intent, exec_context).await.is_ok(),
+        capability
+            .execute(legitimate_intent, exec_context)
+            .await
+            .is_ok(),
         "Legitimate command execution should still work"
     );
 
@@ -165,7 +168,10 @@ async fn test_http_fetch_penetration() -> Result<()> {
     );
 
     assert!(
-        capability.execute(legitimate_intent, exec_context).await.is_ok(),
+        capability
+            .execute(legitimate_intent, exec_context)
+            .await
+            .is_ok(),
         "Legitimate environment should be allowed"
     );
 
@@ -488,15 +494,15 @@ async fn test_malformed_input_handling() -> Result<()> {
         .expect("shell.exec.v1 should be registered");
 
     let malformed_shell_inputs = vec![
-        json!({}), // Missing required fields
-        json!({"command": 123}), // Wrong type
-        json!({"command": null}), // Null value
-        json!({"command": ""}), // Empty command
-        json!({"command": "echo", "timeout_ms": 0}), // Invalid timeout
-        json!({"command": "echo", "timeout_ms": 999999}), // Timeout too large
-        json!({"command": "a".repeat(5000)}), // Extremely long command
+        json!({}),                                                       // Missing required fields
+        json!({"command": 123}),                                         // Wrong type
+        json!({"command": null}),                                        // Null value
+        json!({"command": ""}),                                          // Empty command
+        json!({"command": "echo", "timeout_ms": 0}),                     // Invalid timeout
+        json!({"command": "echo", "timeout_ms": 999999}),                // Timeout too large
+        json!({"command": "a".repeat(5000)}),                            // Extremely long command
         json!({"command": "echo", "extra_field": "should_not_be_here"}), // Extra fields
-        json!({"command": "echo", "args": "not-an-array"}), // Invalid args type
+        json!({"command": "echo", "args": "not-an-array"}),              // Invalid args type
     ];
 
     for (i, malformed_input) in malformed_shell_inputs.iter().enumerate() {

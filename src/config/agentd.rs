@@ -118,6 +118,11 @@ impl AgentdConfig {
             config.adapters.nats.url = Some(url);
         }
 
+        // Isolation backend override (supports custom provider IDs)
+        if let Ok(backend_name) = std::env::var("AGENTD_ISOLATION_BACKEND") {
+            config.isolation.backend_name = Some(backend_name);
+        }
+
         config.validate()?;
         Ok(config)
     }
@@ -305,6 +310,12 @@ impl AgentdConfig {
             }
         }
 
+        if let Some(name) = self.isolation.backend_name.as_deref() {
+            if name.trim().is_empty() {
+                anyhow::bail!("isolation.backend_name cannot be empty when set");
+            }
+        }
+
         Ok(())
     }
 }
@@ -331,6 +342,13 @@ pub struct IsolationConfig {
     #[serde(default)]
     pub default_backend: IsolationBackendType,
 
+    /// Optional backend name override.
+    ///
+    /// When set, this takes precedence over `default_backend` and allows
+    /// selecting custom providers registered via `isolation::register_backend_factory`.
+    #[serde(default)]
+    pub backend_name: Option<String>,
+
     /// Linux native backend configuration
     #[serde(default)]
     pub linux_native: LinuxNativeConfig,
@@ -348,10 +366,25 @@ impl Default for IsolationConfig {
     fn default() -> Self {
         Self {
             default_backend: IsolationBackendType::HostDirect,
+            backend_name: None,
             linux_native: LinuxNativeConfig::default(),
             host_direct: HostDirectConfig::default(),
             container: ContainerBackendConfig::default(),
         }
+    }
+}
+
+impl IsolationConfig {
+    /// Return the configured backend selector name.
+    ///
+    /// Custom backend names override profile defaults.
+    pub fn selected_backend_name(&self) -> String {
+        self.backend_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| self.default_backend.canonical_name().to_string())
     }
 }
 
@@ -368,6 +401,18 @@ pub enum IsolationBackendType {
     Container,
     /// No isolation at all (dangerous, for debugging only)
     None,
+}
+
+impl IsolationBackendType {
+    /// Canonical backend selector for this built-in backend type.
+    pub const fn canonical_name(self) -> &'static str {
+        match self {
+            IsolationBackendType::LinuxNative => "linux-native",
+            IsolationBackendType::HostDirect => "host-direct",
+            IsolationBackendType::Container => "container",
+            IsolationBackendType::None => "none",
+        }
+    }
 }
 
 /// Linux native backend configuration
@@ -1095,6 +1140,13 @@ mod tests {
     }
 
     #[test]
+    fn test_validation_fails_empty_backend_override() {
+        let mut config = AgentdConfig::default();
+        config.isolation.backend_name = Some("   ".to_string());
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
     fn test_serialization_roundtrip() {
         let config = AgentdConfig::server();
         let toml = toml::to_string(&config).unwrap();
@@ -1159,6 +1211,23 @@ mod tests {
         assert_eq!(backend, IsolationBackendType::HostDirect);
     }
 
+    #[test]
+    fn test_isolation_backend_type_canonical_name() {
+        assert_eq!(
+            IsolationBackendType::LinuxNative.canonical_name(),
+            "linux-native"
+        );
+        assert_eq!(
+            IsolationBackendType::HostDirect.canonical_name(),
+            "host-direct"
+        );
+        assert_eq!(
+            IsolationBackendType::Container.canonical_name(),
+            "container"
+        );
+        assert_eq!(IsolationBackendType::None.canonical_name(), "none");
+    }
+
     // ==================== Default Value Tests ====================
 
     #[test]
@@ -1213,10 +1282,30 @@ mod tests {
     fn test_isolation_config_default() {
         let config = IsolationConfig::default();
         assert_eq!(config.default_backend, IsolationBackendType::HostDirect);
+        assert!(config.backend_name.is_none());
         assert!(config.linux_native.landlock_enabled);
         assert!(config.linux_native.seccomp_enabled);
         assert!(config.linux_native.cgroups_enabled);
         assert!(config.linux_native.namespaces_enabled);
+    }
+
+    #[test]
+    fn test_isolation_config_selected_backend_name_defaults_to_backend_type() {
+        let config = IsolationConfig {
+            default_backend: IsolationBackendType::LinuxNative,
+            ..Default::default()
+        };
+        assert_eq!(config.selected_backend_name(), "linux-native");
+    }
+
+    #[test]
+    fn test_isolation_config_selected_backend_name_prefers_override() {
+        let config = IsolationConfig {
+            default_backend: IsolationBackendType::LinuxNative,
+            backend_name: Some("gondolin".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(config.selected_backend_name(), "gondolin");
     }
 
     #[test]

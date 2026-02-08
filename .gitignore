@@ -43,3 +43,9 @@ infra/compose/.env
 policy/data/egress_secrets.json
 **/secrets.json
 **/*_secrets.json
+
+# npm platform binaries (CI-generated)
+npm/agentd-*/agentd
+
+# Node
+node_modules/
