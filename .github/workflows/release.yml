@@ -95,10 +95,19 @@ jobs:
         run: |
           set -euo pipefail
           publish() {
-            echo "Publishing $1..."
-            cargo publish -p "$1" --no-verify
-            echo "Waiting for crates.io to index $1..."
-            sleep 30
+            local retries=3
+            for i in $(seq 1 $retries); do
+              echo "Publishing $1 (attempt $i/$retries)..."
+              if cargo publish -p "$1" --no-verify; then
+                echo "Waiting for crates.io to index $1..."
+                sleep 30
+                return 0
+              fi
+              echo "Publish failed, waiting 90s before retry..."
+              sleep 90
+            done
+            echo "ERROR: Failed to publish $1 after $retries attempts" >&2
+            return 1
           }
 
           # Leaf crates (no internal deps)
@@ -139,9 +148,13 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           bash scripts/npm-version-sync.sh "${VERSION}"
 
-          for pkg in agentd-linux-x64 agentd-darwin-x64 agentd-darwin-arm64; do
-            cp "artifacts/${pkg}/agentd" "npm/${pkg}/agentd"
-            chmod +x "npm/${pkg}/agentd"
+          for pkg_dir in artifacts/agentd-*/; do
+            pkg="$(basename "${pkg_dir}")"
+            if [[ -f "${pkg_dir}/agentd" ]]; then
+              cp "${pkg_dir}/agentd" "npm/${pkg}/agentd"
+              chmod +x "npm/${pkg}/agentd"
+              echo "Placed binary for ${pkg}"
+            fi
           done
 
       - name: Publish packages
