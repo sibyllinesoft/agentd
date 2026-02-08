@@ -105,7 +105,7 @@ jobs:
                 return 0
               fi
               echo "$output"
-              if echo "$output" | grep -q "already uploaded"; then
+              if echo "$output" | grep -q "already exists\|already uploaded"; then
                 echo "$1 already published, skipping"
                 return 0
               fi
