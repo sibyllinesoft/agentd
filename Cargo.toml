@@ -186,12 +186,12 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 warp = "0.3"
 
 # Internal crates
-smith-protocol = { path = "crates/smith-protocol" }
-smith-bus = { path = "crates/smith-bus" }
-smith-config = { path = "crates/smith-config" }
-smith-attestation = { path = "crates/smith-attestation" }
-smith-logging = { path = "crates/smith-logging" }
-smith-jailer = { path = "crates/smith-jailer" }
+smith-protocol = { path = "crates/smith-protocol", version = "0.1.0" }
+smith-bus = { path = "crates/smith-bus", version = "0.1.0" }
+smith-config = { path = "crates/smith-config", version = "0.1.0" }
+smith-attestation = { path = "crates/smith-attestation", version = "0.1.0" }
+smith-logging = { path = "crates/smith-logging", version = "0.1.0" }
+smith-jailer = { path = "crates/smith-jailer", version = "0.1.0" }
 
 # Additional dependencies
 hex = "0.4"

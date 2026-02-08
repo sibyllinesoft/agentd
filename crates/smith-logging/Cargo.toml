@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Structured logging infrastructure with NATS integration"
 keywords = ["logging", "tracing", "nats", "structured", "observability"]
 categories = ["development-tools", "network-programming"]
@@ -37,8 +38,8 @@ governor = "0.6"
 tokio-util = { version = "0.7", features = ["time"] }
 
 # Internal dependencies
-smith-config = { path = "../smith-config" }
-smith-bus = { path = "../smith-bus" }
+smith-config = { path = "../smith-config", version = "0.1.0" }
+smith-bus = { path = "../smith-bus", version = "0.1.0" }
 
 # Additional utilities
 hostname = "0.4"

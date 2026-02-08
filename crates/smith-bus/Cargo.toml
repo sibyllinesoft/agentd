@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "NATS JetStream helpers for intent execution"
 keywords = ["nats", "jetstream", "messaging", "async"]
 categories = ["network-programming", "development-tools"]
