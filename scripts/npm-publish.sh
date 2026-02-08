@@ -26,17 +26,21 @@ publish_with_retry() {
   return 1
 }
 
-# Publish platform packages first (no inter-dependencies)
-PLATFORM_PACKAGES=(
-  agentd-linux-x64
-  agentd-linux-arm64
-  agentd-darwin-x64
-  agentd-darwin-arm64
-)
-
-for pkg in "${PLATFORM_PACKAGES[@]}"; do
-  publish_with_retry "${NPM_DIR}/${pkg}"
+# Publish platform packages that have a binary present
+published=0
+for pkg_dir in "${NPM_DIR}"/agentd-*/; do
+  if [[ -x "${pkg_dir}/agentd" ]]; then
+    publish_with_retry "${pkg_dir}"
+    published=$((published + 1))
+  else
+    echo "Skipping $(basename "${pkg_dir}") (no binary)"
+  fi
 done
+
+if [[ ${published} -eq 0 ]]; then
+  echo "ERROR: No platform packages had binaries to publish" >&2
+  exit 1
+fi
 
 # Wait for registry to propagate platform packages
 echo "Waiting 30s for registry propagation..."

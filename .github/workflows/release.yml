@@ -21,15 +21,11 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
             artifact: agentd-linux-x64
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-latest
-            artifact: agentd-linux-arm64
-            cross: true
           - target: x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-latest
             artifact: agentd-darwin-x64
           - target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-latest
             artifact: agentd-darwin-arm64
     steps:
       - uses: actions/checkout@v4
@@ -41,21 +37,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-
-      - name: Install cross-compilation tools
-        if: matrix.cross
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Configure cross-compilation linker
-        if: matrix.cross
-        run: |
-          mkdir -p .cargo
-          cat >> .cargo/config.toml <<'EOF'
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
-          EOF
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
@@ -157,7 +138,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           bash scripts/npm-version-sync.sh "${VERSION}"
 
-          for pkg in agentd-linux-x64 agentd-linux-arm64 agentd-darwin-x64 agentd-darwin-arm64; do
+          for pkg in agentd-linux-x64 agentd-darwin-x64 agentd-darwin-arm64; do
             cp "artifacts/${pkg}/agentd" "npm/${pkg}/agentd"
             chmod +x "npm/${pkg}/agentd"
           done
