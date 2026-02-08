@@ -1261,9 +1261,9 @@ mod tests {
     use super::*;
     use once_cell::sync::Lazy;
     use serde_json::json;
-    use std::sync::Mutex;
     use smith_protocol::ExecutionStatus;
     use std::collections::HashMap;
+    use std::sync::Mutex;
     use tempfile::TempDir;
 
     static ENV_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
