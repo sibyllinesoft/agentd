@@ -98,9 +98,15 @@ jobs:
             local retries=3
             for i in $(seq 1 $retries); do
               echo "Publishing $1 (attempt $i/$retries)..."
-              if cargo publish -p "$1" --no-verify; then
+              local output
+              if output=$(cargo publish -p "$1" --no-verify 2>&1); then
                 echo "Waiting for crates.io to index $1..."
                 sleep 30
+                return 0
+              fi
+              echo "$output"
+              if echo "$output" | grep -q "already uploaded"; then
+                echo "$1 already published, skipping"
                 return 0
               fi
               echo "Publish failed, waiting 90s before retry..."
