@@ -2509,6 +2509,16 @@ impl DaemonCommand {
                 backend_caps.process_isolation
             );
 
+            if config.executor.security.strict_sandbox
+                && !demo_mode
+                && backend_caps.is_soft_isolation()
+            {
+                anyhow::bail!(
+                    "strict_sandbox is enabled but backend '{}' provides only soft isolation",
+                    backend_caps.name
+                );
+            }
+
             let sandbox_manager: Arc<dyn SandboxManager> = Arc::new(DefaultSandboxManager::new(
                 vec![backend],
                 SandboxManagerConfig::default(),
@@ -2594,10 +2604,15 @@ fn validate_capability_digest(capability_digest: String) -> Result<String> {
 }
 
 fn is_host_direct_backend(isolation_backend: &str) -> bool {
+    let normalized = normalize_backend_name(isolation_backend);
     matches!(
-        isolation_backend,
+        normalized.as_str(),
         "none" | "host" | "host-direct" | "workstation"
     )
+}
+
+fn normalize_backend_name(name: &str) -> String {
+    name.trim().to_ascii_lowercase().replace('_', "-")
 }
 
 fn validate_mode_backend_compatibility(
@@ -2893,6 +2908,16 @@ mod tests {
         config.executor.security.strict_sandbox = true;
 
         let result = validate_mode_backend_compatibility(&config, false, "host-direct");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("strict_sandbox"));
+    }
+
+    #[test]
+    fn test_validate_mode_backend_compatibility_rejects_host_direct_snake_case_in_strict_mode() {
+        let mut config = Config::testing();
+        config.executor.security.strict_sandbox = true;
+
+        let result = validate_mode_backend_compatibility(&config, false, "host_direct");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("strict_sandbox"));
     }

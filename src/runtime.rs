@@ -18,7 +18,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
-use crate::config::agentd::{AgentdConfig, ExecutionProfile, IsolationBackendType};
+use crate::config::agentd::{AgentdConfig, ExecutionProfile};
 use crate::core::auth::AuthProvider;
 use crate::core::ingest::{
     CapabilityInfo, HealthStatus, IngestAdapter, IntentHandler, OutputChunk, RequestContext,
@@ -27,7 +27,7 @@ use crate::core::intent::{IntentRequest, IntentResponse, IntentStatus, ResponseT
 use crate::core::isolation::IsolationBackend;
 use crate::core::output::OutputSink;
 use crate::core::sandbox::SandboxManager;
-use crate::isolation::{HostDirectBackend, LinuxNativeBackend};
+use crate::isolation;
 
 /// AgentdRuntime - The main execution coordinator
 pub struct AgentdRuntime {
@@ -73,25 +73,15 @@ impl AgentdRuntime {
         std::fs::create_dir_all(&config.work_root)
             .context("Failed to create work root directory")?;
 
-        // Initialize isolation backend based on configuration
-        let isolation_backend: Arc<dyn IsolationBackend> = match config.isolation.default_backend {
-            IsolationBackendType::LinuxNative => {
-                info!("Using Linux native isolation backend");
-                Arc::new(LinuxNativeBackend::new(&config.work_root)?)
-            }
-            IsolationBackendType::HostDirect => {
-                info!("Using host-direct isolation backend (no kernel isolation)");
-                Arc::new(HostDirectBackend::new(&config.work_root))
-            }
-            IsolationBackendType::Container => {
-                warn!("Container backend not yet implemented, falling back to host-direct");
-                Arc::new(HostDirectBackend::new(&config.work_root))
-            }
-            IsolationBackendType::None => {
-                warn!("Running with NO isolation - this is unsafe for production!");
-                Arc::new(HostDirectBackend::new(&config.work_root))
-            }
-        };
+        // Initialize isolation backend from registry-backed selector.
+        let requested_backend = config.isolation.selected_backend_name();
+        let isolation_backend = isolation::create_backend(&requested_backend, &config.work_root)
+            .with_context(|| {
+                format!(
+                    "Failed to create configured isolation backend '{}'",
+                    requested_backend
+                )
+            })?;
 
         // Probe backend capabilities
         let backend_caps = isolation_backend
@@ -99,6 +89,25 @@ impl AgentdRuntime {
             .await
             .context("Failed to probe isolation backend")?;
         info!("Isolation backend capabilities: {:?}", backend_caps);
+
+        if matches!(
+            isolation::canonical_backend_name(&requested_backend).as_deref(),
+            Some("host-direct")
+        ) {
+            warn!("Using host-direct isolation backend (no kernel isolation)");
+        }
+
+        if matches!(
+            config.profile,
+            ExecutionProfile::Server | ExecutionProfile::Paranoid
+        ) && backend_caps.is_soft_isolation()
+        {
+            anyhow::bail!(
+                "Profile {:?} requires kernel isolation, but backend '{}' is soft isolation",
+                config.profile,
+                backend_caps.name
+            );
+        }
 
         // Initialize authentication providers
         let auth_providers = Self::setup_auth_providers(&config).await?;
@@ -577,12 +586,63 @@ impl IntentHandler for RuntimeIntentHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::isolation::{register_backend_factory, HostDirectBackend};
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn test_runtime_creation_workstation() {
         let config = AgentdConfig::workstation();
         let runtime = AgentdRuntime::new(config).await;
         assert!(runtime.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_runtime_creation_with_backend_override_alias() {
+        let mut config = AgentdConfig::workstation();
+        config.isolation.backend_name = Some("host".to_string());
+        let runtime = AgentdRuntime::new(config).await;
+        assert!(runtime.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_runtime_creation_with_registered_custom_backend() {
+        let backend_name = format!("runtime-custom-{}", Uuid::new_v4().simple());
+        register_backend_factory(&backend_name, &[], |work_root| {
+            Ok(Arc::new(HostDirectBackend::new(work_root)))
+        })
+        .expect("custom runtime backend should register");
+
+        let mut config = AgentdConfig::workstation();
+        config.isolation.backend_name = Some(backend_name);
+        let runtime = AgentdRuntime::new(config).await;
+        assert!(runtime.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_runtime_creation_with_unknown_backend_override_fails() {
+        let mut config = AgentdConfig::workstation();
+        config.isolation.backend_name = Some("missing-provider".to_string());
+        let runtime = AgentdRuntime::new(config).await;
+        let err = match runtime {
+            Ok(_) => panic!("missing backend override should fail"),
+            Err(err) => err,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("Failed to create configured isolation backend"));
+        assert!(msg.contains("missing-provider"));
+    }
+
+    #[tokio::test]
+    async fn test_runtime_server_profile_rejects_soft_backend_override() {
+        let mut config = AgentdConfig::workstation();
+        config.profile = ExecutionProfile::Server;
+        config.isolation.backend_name = Some("host-direct".to_string());
+        let runtime = AgentdRuntime::new(config).await;
+        let err = match runtime {
+            Ok(_) => panic!("soft isolation backend should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("requires kernel isolation"));
     }
 
     #[tokio::test]

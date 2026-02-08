@@ -180,7 +180,7 @@ once_cell = { workspace = true }
 zstd = "0.13"
 
 # HTTP client for egress
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 
 # Web framework for health endpoints
 warp = "0.3"
