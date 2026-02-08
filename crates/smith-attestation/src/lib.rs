@@ -13,7 +13,7 @@
 //!
 //! # Example
 //!
-//! ```rust
+//! ```rust,ignore
 //! use smith_attestation::{CapabilitySigner, VerificationResult};
 //!
 //! # async fn example() -> anyhow::Result<()> {

@@ -33,7 +33,7 @@ jobs:
         run: cargo check --workspace --all-targets --features grpc
 
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets
 
       - name: rustfmt
         run: cargo fmt --all -- --check

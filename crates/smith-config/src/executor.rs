@@ -1310,6 +1310,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // requires infra/config/smith-executor.toml from deployment repo
     fn test_repo_executor_config_loads() {
         let path = PathBuf::from("../../infra/config/smith-executor.toml");
         let result = ExecutorConfig::load(&path);

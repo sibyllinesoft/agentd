@@ -641,8 +641,7 @@ impl Jailer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::intent::ExecutionLimits;
-    use smith_protocol::{Capability, Intent};
+    use smith_protocol::Capability;
     use tempfile::TempDir;
 
     /// Create a test intent for security testing

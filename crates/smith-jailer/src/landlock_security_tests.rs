@@ -207,18 +207,17 @@ mod tests {
         assert_eq!(LandlockAccess::FsWriteFile as u64, 2);
         assert_eq!(LandlockAccess::FsReadFile as u64, 4);
         assert_eq!(LandlockAccess::FsReadDir as u64, 8);
-        assert_eq!(LandlockAccess::FsMakeChar as u64, 16);
-        assert_eq!(LandlockAccess::FsMakeDir as u64, 32);
-        assert_eq!(LandlockAccess::FsMakeReg as u64, 64);
-        assert_eq!(LandlockAccess::FsMakeSock as u64, 128);
-        assert_eq!(LandlockAccess::FsMakeFifo as u64, 256);
-        assert_eq!(LandlockAccess::FsMakeBlock as u64, 512);
-        assert_eq!(LandlockAccess::FsMakeSymlink as u64, 1024);
-        assert_eq!(LandlockAccess::FsRemoveDir as u64, 2048);
-        assert_eq!(LandlockAccess::FsRemoveFile as u64, 4096);
-        assert_eq!(LandlockAccess::FsMakeSymlink2 as u64, 8192);
-        assert_eq!(LandlockAccess::FsRefer as u64, 16384);
-        assert_eq!(LandlockAccess::FsTruncate as u64, 32768);
+        assert_eq!(LandlockAccess::FsRemoveDir as u64, 16);
+        assert_eq!(LandlockAccess::FsRemoveFile as u64, 32);
+        assert_eq!(LandlockAccess::FsMakeChar as u64, 64);
+        assert_eq!(LandlockAccess::FsMakeDir as u64, 128);
+        assert_eq!(LandlockAccess::FsMakeReg as u64, 256);
+        assert_eq!(LandlockAccess::FsMakeSock as u64, 512);
+        assert_eq!(LandlockAccess::FsMakeFifo as u64, 1024);
+        assert_eq!(LandlockAccess::FsMakeBlock as u64, 2048);
+        assert_eq!(LandlockAccess::FsMakeSymlink as u64, 4096);
+        assert_eq!(LandlockAccess::FsRefer as u64, 8192);
+        assert_eq!(LandlockAccess::FsTruncate as u64, 16384);
     }
 
     #[test]
