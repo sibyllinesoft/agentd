@@ -17,7 +17,7 @@ pub mod seccomp_security_tests;
 use cgroups::{CgroupConfig, CgroupManager, CgroupStats};
 use landlock::{
     apply_fallback_path_restrictions, apply_landlock_rules, create_capability_landlock_config,
-    is_landlock_available, landlock_config_from_profile,
+    is_landlock_available,
 };
 use namespaces::{
     create_namespaces, pivot_root_to_workdir, setup_mount_namespace, NamespaceConfig,
