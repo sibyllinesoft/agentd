@@ -353,16 +353,6 @@ impl Default for ExecutorConfig {
             },
         );
 
-        intent_streams.insert(
-            "http.fetch.v1".to_string(),
-            IntentStreamConfig {
-                subject: "smith.intents.http.fetch.v1".to_string(),
-                max_age: "10m".to_string(),
-                max_bytes: "1GB".to_string(),
-                workers: 4,
-            },
-        );
-
         Self {
             node_name: "exec-01".to_string(),
             work_root: PathBuf::from("/var/lib/smith/executor/work"),
@@ -586,21 +576,7 @@ impl ExecutorConfig {
                     tmpfs_mb: 32,
                     intent_max_bytes: 32 * 1024, // 32KB
                 },
-                overrides: {
-                    let mut overrides = HashMap::new();
-
-                    // HTTP fetch needs more network I/O
-                    overrides.insert(
-                        "http.fetch.v1".to_string(),
-                        DefaultLimits {
-                            io_bytes: 20 * 1024 * 1024,   // 20MB
-                            intent_max_bytes: 128 * 1024, // 128KB
-                            ..DefaultLimits::default()
-                        },
-                    );
-
-                    overrides
-                },
+                overrides: HashMap::new(),
             },
             capabilities: CapabilityConfig {
                 enforcement_enabled: true,

@@ -66,13 +66,26 @@ This separation provides:
 ```
 infra/
 ├── compose/
-│   ├── docker-compose.yaml      # Production stack (gateway + egress + agentd)
-│   ├── docker-compose.dev.yaml  # Development (gateway only)
-│   └── .env.example             # Environment variables template
+│   ├── docker-compose.yaml              # Production stack (gateway + egress + agentd)
+│   ├── docker-compose.monitoring.yaml   # Monitoring overlay (Grafana + Prometheus + Loki)
+│   ├── docker-compose.dev.yaml          # Development (gateway only)
+│   └── .env.example                     # Environment variables template
 ├── envoy/
 │   ├── envoy.yaml               # Gateway Envoy config
 │   ├── envoy-dev.yaml           # Development gateway config
 │   └── envoy-egress.yaml        # Egress proxy config
+├── grafana/
+│   └── provisioning/
+│       ├── datasources/datasources.yml  # Prometheus + Loki datasources
+│       └── dashboards/
+│           ├── dashboards.yml           # Dashboard provider config
+│           └── json/envoy-overview.json # Envoy + agentd dashboard
+├── loki/
+│   └── loki.yml                 # Loki local storage config
+├── prometheus/
+│   └── prometheus.yml           # Scrape targets config
+├── promtail/
+│   └── promtail.yml             # Docker log discovery config
 └── opa/
     └── opa.yaml                 # OPA configuration
 ```
@@ -312,7 +325,47 @@ Sandboxes are assigned policy tiers that control API access:
 
 ## Monitoring
 
-### Envoy Stats
+### Grafana Stack (Prometheus + Loki + Grafana)
+
+A full observability stack is available as a compose overlay:
+
+```bash
+cd infra/compose
+
+# Start core + monitoring
+docker compose -f docker-compose.yaml -f docker-compose.monitoring.yaml up -d
+
+# Stop monitoring only
+docker compose -f docker-compose.yaml -f docker-compose.monitoring.yaml stop prometheus loki promtail grafana
+```
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| Grafana | http://localhost:3000 | Dashboards (admin/admin, anonymous access enabled) |
+| Prometheus | http://localhost:9090 | Metrics explorer and target status |
+| Loki | http://localhost:3100 | Log aggregation (query via Grafana) |
+
+**Pre-provisioned:**
+- Prometheus + Loki datasources (auto-configured)
+- Envoy Overview dashboard with gateway/egress request rates, latency percentiles, agentd intent metrics, and log panels
+
+**Useful Loki queries in Grafana Explore:**
+
+```logql
+# All gateway access logs
+{compose_service="envoy-gateway"}
+
+# Gateway errors
+{compose_service="envoy-gateway"} | json | status >= 400
+
+# Egress requests by method
+{compose_service="envoy-egress"} | json | line_format "{{.method}} {{.path}} {{.status}}"
+
+# agentd logs
+{compose_service="agentd"}
+```
+
+### Envoy Stats (without monitoring stack)
 
 ```bash
 # View stats

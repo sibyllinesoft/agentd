@@ -12,8 +12,6 @@ pub mod analysis_performance;
 pub mod analysis_system;
 pub mod fs_read;
 pub mod fs_write;
-// TODO: Fix git_clone module after refactoring is complete
-// pub mod git_clone;
 pub mod http_fetch;
 pub mod implementation_execute;
 pub mod planner_exec;
@@ -166,11 +164,22 @@ impl RunnerRegistry {
         // Register built-in runners
         registry.register("fs.read", Box::new(fs_read::FsReadRunner::new()));
         registry.register("fs.read.v1", Box::new(fs_read::FsReadRunner::new()));
-        // TODO: Restore fs.write after refactoring is complete
-        // registry.register("fs.write", Box::new(fs_write::FsWriteRunner::new()));
-        registry.register("http.fetch", Box::new(http_fetch::HttpFetchRunner::new()));
-        // TODO: Restore git.clone after refactoring is complete
-        // registry.register("git.clone", Box::new(git_clone::GitCloneRunner::new()));
+        registry.register("fs.write", Box::new(fs_write::FsWriteRunner::new()));
+        registry.register("fs.write.v1", Box::new(fs_write::FsWriteRunner::new()));
+        registry.register(
+            "git.clone",
+            Box::new(test_simulation::UnsupportedCapabilityRunner::new(
+                "git-clone-disabled-runner-v1",
+                "git.clone.v1 is deprecated; use shell.exec.v1 with the git CLI instead",
+            )),
+        );
+        registry.register(
+            "git.clone.v1",
+            Box::new(test_simulation::UnsupportedCapabilityRunner::new(
+                "git-clone-disabled-runner-v1",
+                "git.clone.v1 is deprecated; use shell.exec.v1 with the git CLI instead",
+            )),
+        );
         registry.register(
             "planner.exec",
             Box::new(planner_exec::PlannerExecRunner::new()),
@@ -381,22 +390,16 @@ mod tests {
         let registry = RunnerRegistry::new(None);
 
         assert!(registry.get_runner("fs.read").is_some());
-        assert!(registry.get_runner("http.fetch").is_some());
         assert!(registry.get_runner("nonexistent").is_none());
 
-        // These runners are currently commented out during refactoring
-        // TODO: Re-enable these tests when runners are restored
-        // assert!(registry.get_runner("fs.write").is_some());
-        // assert!(registry.get_runner("git.clone").is_some());
+        assert!(registry.get_runner("fs.write").is_some());
+        assert!(registry.get_runner("git.clone").is_some());
 
         let capabilities = registry.capabilities();
         assert!(capabilities.contains(&"fs.read".to_string()));
-        assert!(capabilities.contains(&"http.fetch".to_string()));
 
-        // These capabilities are currently disabled during refactoring
-        // TODO: Re-enable these tests when runners are restored
-        // assert!(capabilities.contains(&"fs.write".to_string()));
-        // assert!(capabilities.contains(&"git.clone".to_string()));
+        assert!(capabilities.contains(&"fs.write".to_string()));
+        assert!(capabilities.contains(&"git.clone".to_string()));
     }
 
     #[test]
@@ -405,6 +408,8 @@ mod tests {
 
         // Check v1 capability variants
         assert!(registry.get_runner("fs.read.v1").is_some());
+        assert!(registry.get_runner("fs.write.v1").is_some());
+        assert!(registry.get_runner("git.clone.v1").is_some());
         assert!(registry.get_runner("shell.exec.v1").is_some());
         assert!(registry.get_runner("analysis.system.v1").is_some());
         assert!(registry.get_runner("analysis.performance.v1").is_some());

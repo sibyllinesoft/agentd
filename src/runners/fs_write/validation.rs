@@ -158,9 +158,9 @@ impl ContentValidator {
     fn validate_mode_parameter(params: &Value) -> Result<()> {
         if let Some(mode) = params.get("mode") {
             if let Some(mode_str) = mode.as_str() {
-                if !["create", "write", "append"].contains(&mode_str) {
+                if !["create", "write", "append", "overwrite"].contains(&mode_str) {
                     return Err(anyhow::anyhow!(
-                        "mode must be 'create', 'write', or 'append'"
+                        "mode must be 'create', 'write', 'overwrite', or 'append'"
                     ));
                 }
             } else {

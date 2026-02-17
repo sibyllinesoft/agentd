@@ -38,7 +38,7 @@ fn test_runner_registry_initialization() {
     let registry = RunnerRegistry::new(None);
 
     // Check that currently active runners are registered
-    let expected_capabilities = vec!["fs.read", "http.fetch", "planner.exec"];
+    let expected_capabilities = vec!["fs.read", "planner.exec"];
 
     for capability in &expected_capabilities {
         assert!(
@@ -179,50 +179,18 @@ async fn test_fs_read_runner_validation_failure() -> Result<()> {
     Ok(())
 }
 
-/// Test http.fetch runner integration
+/// Test http.fetch runner is removed from agentd
 #[tokio::test]
-async fn test_http_fetch_runner_integration() -> Result<()> {
-    let temp_dir = TempDir::new()?;
+async fn test_http_fetch_runner_removed() -> Result<()> {
     let registry = RunnerRegistry::new(None);
-    let runner = registry
-        .get_runner("http.fetch")
-        .expect("http.fetch runner should be registered");
-
-    // Test parameter validation (using a localhost URL that might not respond)
-    let valid_params = json!({
-        "url": "http://127.0.0.1:1234/test",
-        "method": "GET",
-        "timeout": 1000
-    });
-    runner.validate_params(&valid_params)?;
-
-    // Test execution (expect failure due to connection refused)
-    let exec_context = agentd::runners::create_exec_context(
-        temp_dir.path(),
-        ExecutionLimits {
-            cpu_ms_per_100ms: 80,
-            mem_bytes: 256 * 1024 * 1024, // 256MB
-            io_bytes: 10 * 1024 * 1024,   // 10MB
-            pids_max: 5,
-            timeout_ms: 15000, // 15 seconds
-        },
-        Scope {
-            paths: vec![temp_dir.path().to_string_lossy().to_string()],
-            urls: vec!["http://127.0.0.1:1234/test".to_string()],
-        },
-        "test-trace-id".to_string(),
+    assert!(
+        registry.get_runner("http.fetch").is_none(),
+        "http.fetch runner should not be registered in agentd"
     );
-    let mut output_sink = MemoryOutputSink::new();
-
-    let result = runner
-        .execute(&exec_context, valid_params, &mut output_sink)
-        .await?;
-
-    // Should complete execution even if HTTP request fails
-    assert!(matches!(
-        result.status,
-        ExecutionStatus::Ok | ExecutionStatus::Error
-    ));
+    assert!(
+        registry.get_runner("http.fetch.v1").is_none(),
+        "http.fetch.v1 runner should not be registered in agentd"
+    );
 
     Ok(())
 }

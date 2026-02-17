@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
 
     // Parse command line arguments
     let matches = Command::new("sign-policy-bundle")
-        .version("0.1.0")
+        .version("0.1.1")
         .about("Sign Smith capability bundle with cryptographic signature")
         .author("Smith Team")
         .arg(

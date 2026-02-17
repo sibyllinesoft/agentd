@@ -10,7 +10,7 @@ use std::fs;
 
 fn main() -> Result<()> {
     let matches = Command::new("validate-subject-abi")
-        .version("0.1.0")
+        .version("0.1.1")
         .about("Validate Subject ABI centralization and stability")
         .author("Smith Team")
         .arg(

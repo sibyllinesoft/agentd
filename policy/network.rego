@@ -44,21 +44,18 @@ is_write_network if {
     base.capability in write_network
 }
 
-# Parse URL to extract host
-parsed_url := url.parse(base.request_url) if {
+# Parse URL components via regex
+_url_parts := regex.find_all_string_submatch_n(`^([a-zA-Z][a-zA-Z0-9+\-.]*):\/\/([^/:?#]+)(?::(\d+))?`, base.request_url, 1)[0] if {
     base.request_url
 }
 
-request_host := parsed_url.host if {
-    parsed_url
-}
+request_scheme := _url_parts[1] if { _url_parts }
 
-request_scheme := parsed_url.scheme if {
-    parsed_url
-}
+request_host := _url_parts[2] if { _url_parts }
 
-request_port := parsed_url.port if {
-    parsed_url.port
+request_port := to_number(_url_parts[3]) if {
+    _url_parts
+    _url_parts[3] != ""
 }
 
 # Default port based on scheme

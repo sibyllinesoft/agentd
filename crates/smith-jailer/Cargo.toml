@@ -35,8 +35,8 @@ libc = "0.2"
 nix = { version = "0.29", features = ["process", "mount", "user", "fs", "sched"] }
 
 # Internal dependencies
-smith-protocol = { path = "../smith-protocol", version = "0.1.0" }
-smith-config = { path = "../smith-config", version = "0.1.0" }
+smith-protocol = { path = "../smith-protocol", version = "0.1.1" }
+smith-config = { path = "../smith-config", version = "0.1.1" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

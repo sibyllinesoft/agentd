@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
 
     // Parse command line arguments
     let matches = Command::new("generate-provenance")
-        .version("0.1.0")
+        .version("0.1.1")
         .about("Generate SLSA provenance metadata for Smith builds")
         .author("Smith Team")
         .arg(

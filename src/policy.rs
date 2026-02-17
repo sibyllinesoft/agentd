@@ -25,6 +25,7 @@ pub struct PolicyEngine {
     host_context: HostContext,
     workspace_root: Option<PathBuf>,
     allow_policy_disable_override: bool,
+    allow_builtin_fallback: bool,
 }
 
 impl PolicyEngine {
@@ -54,11 +55,26 @@ impl PolicyEngine {
                 Err(_) => Some(path),
             });
 
+        let allow_builtin_fallback = env::var("SMITH_EXECUTOR_ALLOW_BUILTIN_POLICY_FALLBACK")
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes"
+                )
+            })
+            .unwrap_or(false);
+        if allow_builtin_fallback {
+            warn!(
+                "Legacy built-in policy fallback enabled; NATS intents may be allowed without OPA policy matches"
+            );
+        }
+
         Ok(Self {
             registry: Arc::new(PolicyRegistry::new(default_limits)),
             host_context,
             workspace_root,
             allow_policy_disable_override: !config.executor.capabilities.enforcement_enabled,
+            allow_builtin_fallback,
         })
     }
 
@@ -129,9 +145,22 @@ impl PolicyEngine {
                 debug!(
                     capability = capability_key,
                     tenant = intent.domain.as_str(),
-                    "No registered policies; falling back to built-in guardrails"
+                    fallback_enabled = self.allow_builtin_fallback,
+                    "No registered OPA policies for intent"
                 );
-                return self.evaluate_builtin(capability_key, intent);
+                if self.allow_builtin_fallback {
+                    return self.evaluate_builtin(capability_key, intent);
+                }
+                return Ok(PolicyResult {
+                    allow: false,
+                    reason: Some(format!(
+                        "No OPA policy registered for capability '{}' in tenant '{}'",
+                        capability_key, intent.domain
+                    )),
+                    limits: self.registry.default_limits(),
+                    scope: json!({}),
+                    policy_id: Some("opa.policy.missing".to_string()),
+                });
             }
         };
 
@@ -194,8 +223,19 @@ impl PolicyEngine {
 
         if let Some(result) = final_allow {
             Ok(result)
-        } else {
+        } else if self.allow_builtin_fallback {
             self.evaluate_builtin(capability_key, intent)
+        } else {
+            Ok(PolicyResult {
+                allow: false,
+                reason: Some(format!(
+                    "OPA policies for capability '{}' did not return an allow decision",
+                    capability_key
+                )),
+                limits: self.registry.default_limits(),
+                scope: json!({}),
+                policy_id: Some("opa.policy.no_match".to_string()),
+            })
         }
     }
 
@@ -735,6 +775,7 @@ mod tests {
     #[tokio::test]
     async fn test_policy_disable_override_respected_when_enforcement_disabled() {
         let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("SMITH_EXECUTOR_ALLOW_BUILTIN_POLICY_FALLBACK");
         let config = Config::testing();
         let engine = PolicyEngine::new(&config).unwrap();
         std::env::set_var("SMITH_EXECUTOR_DISABLE_POLICY", "1");
@@ -755,6 +796,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap();
         let mut config = Config::testing();
         config.executor.capabilities.enforcement_enabled = true;
+        std::env::remove_var("SMITH_EXECUTOR_ALLOW_BUILTIN_POLICY_FALLBACK");
         let engine = PolicyEngine::new(&config).unwrap();
         std::env::set_var("SMITH_EXECUTOR_DISABLE_POLICY", "1");
         let intent = create_test_intent(Capability::ShellExec, json!({"command": "echo hi"}));
@@ -762,11 +804,44 @@ mod tests {
         let result = engine.evaluate(&intent).await.unwrap();
         std::env::remove_var("SMITH_EXECUTOR_DISABLE_POLICY");
 
-        assert!(result.allow);
+        assert!(!result.allow);
         assert_ne!(
             result.policy_id.as_deref(),
             Some("policy.disabled.override")
         );
+        assert_eq!(result.policy_id.as_deref(), Some("opa.policy.missing"));
+    }
+
+    #[tokio::test]
+    async fn test_policy_denies_without_registered_opa_policy_by_default() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("SMITH_EXECUTOR_ALLOW_BUILTIN_POLICY_FALLBACK");
+        let mut config = Config::testing();
+        config.executor.capabilities.enforcement_enabled = true;
+        let engine = PolicyEngine::new(&config).unwrap();
+        let intent = create_test_intent(Capability::ShellExec, json!({"command": "echo hi"}));
+
+        let result = engine.evaluate(&intent).await.unwrap();
+
+        assert!(!result.allow);
+        assert_eq!(result.policy_id.as_deref(), Some("opa.policy.missing"));
+    }
+
+    #[tokio::test]
+    async fn test_legacy_builtin_fallback_can_be_enabled_explicitly() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::remove_var("SMITH_EXECUTOR_DISABLE_POLICY");
+        std::env::set_var("SMITH_EXECUTOR_ALLOW_BUILTIN_POLICY_FALLBACK", "1");
+        let mut config = Config::testing();
+        config.executor.capabilities.enforcement_enabled = true;
+        let engine = PolicyEngine::new(&config).unwrap();
+        let intent = create_test_intent(Capability::ShellExec, json!({"command": "echo hi"}));
+
+        let result = engine.evaluate(&intent).await.unwrap();
+        std::env::remove_var("SMITH_EXECUTOR_ALLOW_BUILTIN_POLICY_FALLBACK");
+
+        assert!(result.allow);
+        assert_eq!(result.policy_id.as_deref(), Some("builtin.default.allow"));
     }
 
     #[test]

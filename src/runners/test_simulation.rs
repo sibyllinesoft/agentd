@@ -10,6 +10,10 @@ use smith_protocol::ExecutionStatus;
 
 pub struct RandomFailureRunner;
 pub struct AlwaysFailRunner;
+pub struct UnsupportedCapabilityRunner {
+    digest: &'static str,
+    message: &'static str,
+}
 pub struct NoopSuccessRunner {
     digest: &'static str,
     message: &'static str,
@@ -28,6 +32,12 @@ impl AlwaysFailRunner {
 }
 
 impl NoopSuccessRunner {
+    pub fn new(digest: &'static str, message: &'static str) -> Self {
+        Self { digest, message }
+    }
+}
+
+impl UnsupportedCapabilityRunner {
     pub fn new(digest: &'static str, message: &'static str) -> Self {
         Self { digest, message }
     }
@@ -140,6 +150,36 @@ impl Runner for NoopSuccessRunner {
             duration_ms,
             stdout_bytes: self.message.as_bytes().len() as u64,
             stderr_bytes: 0,
+        })
+    }
+}
+
+#[async_trait]
+impl Runner for UnsupportedCapabilityRunner {
+    fn digest(&self) -> String {
+        self.digest.to_string()
+    }
+
+    fn validate_params(&self, _params: &Value) -> Result<()> {
+        Ok(())
+    }
+
+    async fn execute(
+        &self,
+        _ctx: &ExecContext,
+        _params: Value,
+        out: &mut dyn OutputSink,
+    ) -> Result<ExecutionResult> {
+        let start = Instant::now();
+        out.write_stderr(self.message.as_bytes())?;
+
+        Ok(ExecutionResult {
+            status: ExecutionStatus::Error,
+            exit_code: Some(2),
+            artifacts: Vec::new(),
+            duration_ms: start.elapsed().as_millis() as u64,
+            stdout_bytes: 0,
+            stderr_bytes: self.message.as_bytes().len() as u64,
         })
     }
 }

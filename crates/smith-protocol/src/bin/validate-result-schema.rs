@@ -9,7 +9,7 @@ use std::fs;
 
 fn main() -> Result<()> {
     let matches = Command::new("validate-result-schema")
-        .version("0.1.0")
+        .version("0.1.1")
         .about("Validate Result Schema v1 stability")
         .author("Smith Team")
         .arg(

@@ -8,7 +8,7 @@
 #   docker run --privileged agentd
 
 # Build stage
-FROM rust:1.75-bookworm AS builder
+FROM rust:bookworm AS builder
 
 WORKDIR /build
 
@@ -22,8 +22,8 @@ RUN apt-get update && apt-get install -y \
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY src ./src
-COPY build.rs ./build.rs 2>/dev/null || true
-COPY proto ./proto 2>/dev/null || true
+COPY build.rs ./build.rs
+COPY proto ./proto
 
 # Build release binary
 RUN cargo build --release --bin agentd
@@ -52,9 +52,6 @@ RUN useradd -r -s /bin/false agentd \
 # Copy binary from builder
 COPY --from=builder /build/target/release/agentd /usr/local/bin/agentd
 
-# Copy default configuration
-COPY config/agentd.toml /etc/agentd/config/agentd.toml 2>/dev/null || true
-
 # Copy policy files
 COPY policy /etc/agentd/policy
 
@@ -75,4 +72,4 @@ USER root
 WORKDIR /var/lib/agentd
 
 ENTRYPOINT ["/usr/local/bin/agentd"]
-CMD ["daemon"]
+CMD ["run"]

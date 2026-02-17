@@ -17,7 +17,7 @@ impl SchemaValidator {
 
         // Load built-in schemas for supported capabilities
         schemas.insert("fs.read.v1".to_string(), create_fs_read_schema()?);
-        schemas.insert("http.fetch.v1".to_string(), create_http_fetch_schema()?);
+        schemas.insert("fs.write.v1".to_string(), create_fs_write_schema()?);
         schemas.insert("shell.exec.v1".to_string(), create_shell_exec_schema()?);
 
         info!(
@@ -42,14 +42,26 @@ impl SchemaValidator {
 
         let schema_key = match intent.capability {
             smith_protocol::Capability::FsReadV1 => "fs.read.v1",
-            smith_protocol::Capability::HttpFetchV1 => "http.fetch.v1",
+            smith_protocol::Capability::HttpFetchV1 => {
+                return Err(anyhow::anyhow!(
+                    "http.fetch.v1 is removed from agentd; route this intent to the external http.fetch capability service"
+                ));
+            }
             smith_protocol::Capability::FsWriteV1 => "fs.write.v1",
-            smith_protocol::Capability::GitCloneV1 => "git.clone.v1",
+            smith_protocol::Capability::GitCloneV1 => {
+                return Err(anyhow::anyhow!(
+                    "git.clone.v1 is deprecated; use shell.exec.v1 with the git CLI instead"
+                ));
+            }
             smith_protocol::Capability::ArchiveReadV1 => "archive.read.v1",
             smith_protocol::Capability::SqliteQueryV1 => "sqlite.query.v1",
             smith_protocol::Capability::BenchReportV1 => "bench.report.v1",
             smith_protocol::Capability::ShellExec => "shell.exec.v1",
-            smith_protocol::Capability::HttpFetch => "http.fetch.v1",
+            smith_protocol::Capability::HttpFetch => {
+                return Err(anyhow::anyhow!(
+                    "http.fetch.v1 is removed from agentd; route this intent to the external http.fetch capability service"
+                ));
+            }
         }
         .to_string();
 
@@ -265,6 +277,64 @@ fn create_fs_read_schema() -> Result<JSONSchema> {
         .context("Failed to compile fs.read.v1 schema")
 }
 
+/// Create JSON schema for fs.write.v1 capability
+fn create_fs_write_schema() -> Result<JSONSchema> {
+    use std::sync::OnceLock;
+    static SCHEMA: OnceLock<Value> = OnceLock::new();
+
+    let schema = SCHEMA.get_or_init(|| {
+        let params_schema = json!({
+            "type": "object",
+            "required": ["path", "content"],
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "description": "Target file path"
+                },
+                "content": {
+                    "description": "String content or base64 object",
+                    "oneOf": [
+                        {
+                            "type": "string",
+                            "maxLength": 1_048_576
+                        },
+                        {
+                            "type": "object",
+                            "required": ["data", "encoding"],
+                            "properties": {
+                                "data": { "type": "string", "minLength": 1 },
+                                "encoding": { "type": "string", "enum": ["base64"] }
+                            },
+                            "additionalProperties": false
+                        }
+                    ]
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["create", "write", "overwrite", "append"],
+                    "default": "write",
+                    "description": "Write mode"
+                },
+                "permissions": {
+                    "type": "string",
+                    "pattern": "^[0-7]{3,4}$",
+                    "description": "Unix file permissions in octal"
+                }
+            },
+            "additionalProperties": false
+        });
+
+        build_intent_schema_value("fs.write.v1", params_schema, None)
+    });
+
+    JSONSchema::options()
+        .with_draft(Draft::Draft7)
+        .compile(schema)
+        .context("Failed to compile fs.write.v1 schema")
+}
+
 /// Create JSON schema for http.fetch.v1 capability
 fn create_http_fetch_schema() -> Result<JSONSchema> {
     use std::sync::OnceLock;
@@ -412,6 +482,27 @@ mod tests {
         }
     }
 
+    fn create_valid_fs_write_intent() -> smith_protocol::Intent {
+        use std::collections::HashMap;
+        smith_protocol::Intent {
+            id: "f3e8f5c4-7b20-4c78-9e93-7a8a2ef7a6ec".to_string(),
+            capability: smith_protocol::Capability::FsWriteV1,
+            domain: "tenant-a".to_string(),
+            params: json!({
+                "path": "/srv/output/report.txt",
+                "content": "hello world",
+                "mode": "overwrite",
+                "permissions": "644"
+            }),
+            created_at_ns: 1735412345678000000,
+            ttl_ms: 60_000,
+            nonce: "e1f4a19a8e6f1d0b2c3d4e5f6a7b8c9f".to_string(),
+            signer: SAMPLE_SIGNER.to_string(),
+            signature_b64: SAMPLE_SIGNATURE.to_string(),
+            metadata: HashMap::new(),
+        }
+    }
+
     fn create_valid_shell_exec_intent() -> smith_protocol::Intent {
         smith_protocol::Intent {
             id: "c3a9c2e1-9a76-46cf-8f8b-8fb2d1c1a111".to_string(),
@@ -436,9 +527,21 @@ mod tests {
         let capabilities = validator.supported_capabilities();
 
         assert!(capabilities.contains(&"fs.read.v1".to_string()));
-        assert!(capabilities.contains(&"http.fetch.v1".to_string()));
+        assert!(capabilities.contains(&"fs.write.v1".to_string()));
         assert!(capabilities.contains(&"shell.exec.v1".to_string()));
         assert_eq!(capabilities.len(), 3);
+    }
+
+    #[test]
+    fn test_valid_fs_write_intent() {
+        let validator = SchemaValidator::new().unwrap();
+        let intent = create_valid_fs_write_intent();
+        let result = validator.validate_intent(&intent);
+        assert!(
+            result.is_ok(),
+            "Valid fs.write intent should pass validation: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -458,19 +561,13 @@ mod tests {
     }
 
     #[test]
-    fn test_valid_http_fetch_intent() {
+    fn test_http_fetch_capability_is_removed() {
         let validator = SchemaValidator::new().unwrap();
         let intent = create_valid_http_fetch_intent();
 
-        let result = validator.validate_intent(&intent);
-        if let Err(ref error) = result {
-            println!("Validation failed: {}", error);
-        }
-        assert!(
-            result.is_ok(),
-            "Valid http.fetch intent should pass validation: {:?}",
-            result.err()
-        );
+        let error = validator.validate_intent(&intent).unwrap_err().to_string();
+        assert!(error.contains("removed from agentd"));
+        assert!(error.contains("external http.fetch capability service"));
     }
 
     #[test]
@@ -478,6 +575,29 @@ mod tests {
         // Test that invalid capability strings fail to parse
         let result = smith_protocol::Capability::from_str("unknown.cap");
         assert!(result.is_err(), "Unknown capability should fail to parse");
+    }
+
+    #[test]
+    fn test_git_clone_capability_is_deprecated() {
+        let validator = SchemaValidator::new().unwrap();
+        let intent = smith_protocol::Intent {
+            id: "d3a9c2e1-9a76-46cf-8f8b-8fb2d1c1a112".to_string(),
+            capability: smith_protocol::Capability::GitCloneV1,
+            domain: "test".to_string(),
+            params: json!({
+                "repository_url": "https://github.com/example/repo.git"
+            }),
+            created_at_ns: 1735412345678000000,
+            ttl_ms: 60_000,
+            nonce: "f1f4a19a8e6f1d0b2c3d4e5f6a7b8c9e".to_string(),
+            signer: SAMPLE_SIGNER.to_string(),
+            signature_b64: SAMPLE_SIGNATURE.to_string(),
+            metadata: HashMap::new(),
+        };
+
+        let error = validator.validate_intent(&intent).unwrap_err().to_string();
+        assert!(error.contains("deprecated"));
+        assert!(error.contains("shell.exec.v1"));
     }
 
     #[test]
@@ -701,9 +821,8 @@ mod tests {
 
         let result = validator.validate_intent(&intent);
         assert!(
-            result.is_ok(),
-            "HTTP fetch with timeout at max should pass: {:?}",
-            result.err()
+            result.is_err(),
+            "http.fetch is no longer supported by agentd"
         );
     }
 
@@ -840,9 +959,8 @@ mod tests {
 
         let result = validator.validate_intent(&intent);
         assert!(
-            result.is_ok(),
-            "HTTP fetch with HEAD method should pass: {:?}",
-            result.err()
+            result.is_err(),
+            "http.fetch is no longer supported by agentd"
         );
     }
 

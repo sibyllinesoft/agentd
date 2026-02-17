@@ -249,6 +249,14 @@ impl Runner for HttpFetchRunner {
     }
 
     fn validate_params(&self, params: &Value) -> Result<()> {
+        let url = params
+            .get("url")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| anyhow::anyhow!("url parameter is required"))?;
+        if url.trim().is_empty() {
+            return Err(anyhow::anyhow!("url parameter must not be empty"));
+        }
+
         // Validate method parameter (optional, defaults to GET)
         if let Some(method) = params.get("method") {
             let method_str = method
@@ -307,14 +315,24 @@ impl Runner for HttpFetchRunner {
     ) -> Result<ExecutionResult> {
         out.write_log("INFO", "Starting http.fetch execution")?;
 
-        // Extract resource URL from scope
-        let url = ctx
-            .scope
-            .urls
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("No URL provided in scope"))?;
+        let url = params
+            .get("url")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| anyhow::anyhow!("url parameter is required"))?;
 
-        // Validate URL against allowed patterns
+        if ctx.scope.urls.is_empty() {
+            out.write_log("ERROR", "No URL allowlist provided in scope")?;
+            return Ok(ExecutionResult {
+                status: ExecutionStatus::Error,
+                exit_code: Some(1),
+                artifacts: vec![],
+                duration_ms: 0,
+                stdout_bytes: 0,
+                stderr_bytes: 0,
+            });
+        }
+
+        // Validate requested URL against scope allowlist patterns
         if let Err(e) = self.validate_url(url, &ctx.scope.urls) {
             out.write_log("ERROR", &format!("URL validation failed: {}", e))?;
             return Ok(ExecutionResult {
@@ -395,6 +413,7 @@ mod tests {
 
         // Valid parameters with GET
         let valid_get = json!({
+            "url": "https://api.example.com/data",
             "method": "GET",
             "headers": {
                 "Accept": "application/json",
@@ -406,6 +425,7 @@ mod tests {
 
         // Valid parameters with HEAD
         let valid_head = json!({
+            "url": "https://api.example.com/data",
             "method": "HEAD",
             "timeout_ms": 1000
         });
@@ -699,9 +719,9 @@ mod tests {
     fn test_validate_params_empty_object() {
         let runner = HttpFetchRunner::new();
 
-        // Empty params should be valid (all defaults)
+        // URL is required
         let params = json!({});
-        assert!(runner.validate_params(&params).is_ok());
+        assert!(runner.validate_params(&params).is_err());
     }
 
     #[test]
@@ -752,7 +772,7 @@ mod tests {
         let runner = HttpFetchRunner::new();
 
         // timeout_ms at minimum boundary (50) should pass
-        let params = json!({"timeout_ms": 50});
+        let params = json!({"url": "https://api.example.com/data", "timeout_ms": 50});
         assert!(runner.validate_params(&params).is_ok());
 
         // timeout_ms just below minimum (49) should fail
@@ -765,7 +785,7 @@ mod tests {
         let runner = HttpFetchRunner::new();
 
         // timeout_ms at maximum boundary (30000) should pass
-        let params = json!({"timeout_ms": 30000});
+        let params = json!({"url": "https://api.example.com/data", "timeout_ms": 30000});
         assert!(runner.validate_params(&params).is_ok());
 
         // timeout_ms just above maximum (30001) should fail
@@ -799,7 +819,7 @@ mod tests {
         for i in 0..10 {
             headers_obj.insert(format!("Header{}", i), json!("value"));
         }
-        let params = json!({"headers": headers_obj});
+        let params = json!({"url": "https://api.example.com/data", "headers": headers_obj});
         assert!(runner.validate_params(&params).is_ok());
     }
 

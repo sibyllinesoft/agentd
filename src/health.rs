@@ -778,7 +778,7 @@ mod tests {
         let status = HealthStatus {
             status: "starting".to_string(),
             timestamp: 1000,
-            version: "0.1.0".to_string(),
+            version: "0.1.1".to_string(),
             platform: PlatformInfo::detect(),
             security: SecurityStatus::detect(),
             isolation: IsolationStatus::default(),

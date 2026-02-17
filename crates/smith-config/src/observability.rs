@@ -358,7 +358,7 @@ impl Default for ObservabilityConfig {
             enabled: false, // Safe default - must be explicitly enabled
             redaction_level: RedactionLevel::Permissive,
             service_name: "smith".to_string(),
-            service_version: "0.1.0".to_string(),
+            service_version: "0.1.1".to_string(),
             deployment_environment: "development".to_string(),
             sampling: SamplingStrategy::default(),
             resource_attributes: HashMap::new(),

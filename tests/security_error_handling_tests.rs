@@ -303,83 +303,19 @@ async fn test_resource_limit_error_handling() -> Result<()> {
     Ok(())
 }
 
-/// Test network error handling for HTTP fetch
+/// Test http.fetch runner is removed from agentd
 #[tokio::test]
 async fn test_network_error_handling() -> Result<()> {
-    let temp_dir = TempDir::new()?;
     let registry = RunnerRegistry::new(None);
 
-    let runner = registry
-        .get_runner("http.fetch")
-        .expect("http.fetch runner should be registered");
-
-    // Test various network error scenarios
-    let network_error_cases = vec![
-        ("http://127.0.0.1:1", "connection refused"),
-        (
-            "http://nonexistent-domain-12345.com",
-            "DNS resolution failure",
-        ),
-        ("http://httpbin.org:99999/get", "invalid port"),
-    ];
-
-    for (url, description) in network_error_cases {
-        let exec_context = create_exec_context(
-            temp_dir.path(),
-            ExecutionLimits {
-                cpu_ms_per_100ms: 80,
-                mem_bytes: 64 * 1024 * 1024,
-                io_bytes: 10 * 1024 * 1024,
-                pids_max: 5,
-                timeout_ms: 5000, // 5 second timeout
-            },
-            Scope {
-                paths: vec![],
-                urls: vec![url.to_string()],
-            },
-            format!("network-error-{}", description.replace(' ', "-")),
-        );
-
-        let mut output_sink = MemoryOutputSink::new();
-        let params = json!({
-            "url": url,
-            "method": "GET",
-            "timeout": 2000
-        });
-
-        let result = runner
-            .execute(&exec_context, params, &mut output_sink)
-            .await;
-
-        match result {
-            Ok(exec_result) => {
-                // Network errors should be handled gracefully
-                assert!(
-                    exec_result.status == ExecutionStatus::Ok
-                        || exec_result.status == ExecutionStatus::Error,
-                    "Should handle network error gracefully: {}",
-                    description
-                );
-
-                // Should not crash or hang
-                println!(
-                    "Network error test completed for {}: {:?}",
-                    description, exec_result.status
-                );
-            }
-            Err(e) => {
-                // Execution errors are also acceptable for network failures
-                let error_msg = format!("{:?}", e);
-                println!("Network execution error for {}: {}", description, error_msg);
-            }
-        }
-
-        // Check error logging
-        if !output_sink.logs.is_empty() {
-            let log_content = output_sink.logs.join("\n");
-            println!("Network error logs for {}: {}", description, log_content);
-        }
-    }
+    assert!(
+        registry.get_runner("http.fetch").is_none(),
+        "http.fetch runner should not be registered in agentd"
+    );
+    assert!(
+        registry.get_runner("http.fetch.v1").is_none(),
+        "http.fetch.v1 runner should not be registered in agentd"
+    );
 
     Ok(())
 }
