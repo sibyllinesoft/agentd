@@ -6,7 +6,6 @@ while allowing necessary operations for normal execution.
 */
 
 use anyhow::{Context, Result};
-use std::ffi::CString;
 use tracing::{debug, info};
 
 use smith_jailer::seccomp::{
@@ -14,8 +13,11 @@ use smith_jailer::seccomp::{
 };
 
 use super::common::{
-    execute_fork_test, verify_allowed_syscall_before_filter, IsolationTestResults, TestExitCode,
+    IsolationTestResults, TestExitCode,
 };
+
+#[cfg(target_os = "linux")]
+use super::common::{execute_fork_test, verify_allowed_syscall_before_filter};
 
 /// Execute seccomp isolation test
 pub async fn execute_seccomp_test(results: &mut IsolationTestResults) {
@@ -34,6 +36,7 @@ pub async fn execute_seccomp_test(results: &mut IsolationTestResults) {
 }
 
 /// Main seccomp isolation test function
+#[cfg(target_os = "linux")]
 pub async fn test_seccomp_isolation() -> Result<String> {
     // Verify basic syscalls work before applying seccomp
     verify_allowed_syscall_before_filter().context("Basic syscalls failed before seccomp")?;
@@ -60,7 +63,14 @@ pub async fn test_seccomp_isolation() -> Result<String> {
     Ok(test_summary)
 }
 
+/// Main seccomp isolation test function (non-Linux: seccomp not available)
+#[cfg(not(target_os = "linux"))]
+pub async fn test_seccomp_isolation() -> Result<String> {
+    Ok("Seccomp not available on this platform; skipped".to_string())
+}
+
 /// Execute tests for syscalls that should be blocked by seccomp
+#[cfg(target_os = "linux")]
 async fn execute_forbidden_syscall_tests(seccomp_config: &SeccompConfig) -> Result<Vec<String>> {
     let mut successful_blocks = Vec::new();
 
@@ -101,6 +111,7 @@ async fn execute_forbidden_syscall_tests(seccomp_config: &SeccompConfig) -> Resu
 }
 
 /// Test that ptrace syscall is blocked by seccomp
+#[cfg(target_os = "linux")]
 async fn test_ptrace_blocked(seccomp_config: &SeccompConfig) -> Result<String> {
     let config = seccomp_config.clone();
     execute_fork_test("ptrace_blocked", move || {
@@ -110,6 +121,7 @@ async fn test_ptrace_blocked(seccomp_config: &SeccompConfig) -> Result<String> {
 }
 
 /// Child process function for testing ptrace blocking
+#[cfg(target_os = "linux")]
 fn test_ptrace_in_child_process(config: &SeccompConfig) -> TestExitCode {
     // Apply seccomp filter
     if let Err(_) = apply_seccomp_filter(config) {
@@ -148,6 +160,7 @@ fn test_ptrace_in_child_process(config: &SeccompConfig) -> TestExitCode {
 }
 
 /// Test that raw socket creation is blocked by seccomp
+#[cfg(target_os = "linux")]
 async fn test_raw_socket_blocked(seccomp_config: &SeccompConfig) -> Result<String> {
     let config = seccomp_config.clone();
     execute_fork_test("raw_socket_blocked", move || {
@@ -157,6 +170,7 @@ async fn test_raw_socket_blocked(seccomp_config: &SeccompConfig) -> Result<Strin
 }
 
 /// Child process function for testing raw socket blocking
+#[cfg(target_os = "linux")]
 fn test_raw_socket_in_child_process(config: &SeccompConfig) -> TestExitCode {
     // Apply seccomp filter
     if let Err(_) = apply_seccomp_filter(config) {
@@ -188,6 +202,7 @@ fn test_raw_socket_in_child_process(config: &SeccompConfig) -> TestExitCode {
 }
 
 /// Test that mount syscall is blocked by seccomp
+#[cfg(target_os = "linux")]
 async fn test_mount_blocked(seccomp_config: &SeccompConfig) -> Result<String> {
     let config = seccomp_config.clone();
     execute_fork_test("mount_blocked", move || {
@@ -197,7 +212,10 @@ async fn test_mount_blocked(seccomp_config: &SeccompConfig) -> Result<String> {
 }
 
 /// Child process function for testing mount blocking
+#[cfg(target_os = "linux")]
 fn test_mount_in_child_process(config: &SeccompConfig) -> TestExitCode {
+    use std::ffi::CString;
+
     // Apply seccomp filter
     if let Err(_) = apply_seccomp_filter(config) {
         return TestExitCode::SeccompFailed;
