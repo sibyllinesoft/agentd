@@ -329,6 +329,7 @@ fn handle_client(fd: i32) {
 }
 
 /// Mount essential filesystems for a minimal Linux environment
+#[cfg(target_os = "linux")]
 fn setup_filesystems() {
     use std::ffi::CString;
 
@@ -370,13 +371,24 @@ fn setup_filesystems() {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+fn setup_filesystems() {
+    eprintln!("Warning: filesystem setup requires Linux; skipping");
+}
+
 /// Set hostname
+#[cfg(target_os = "linux")]
 fn set_hostname(name: &str) {
     use std::ffi::CString;
     let name_c = CString::new(name).unwrap();
     unsafe {
         libc::sethostname(name_c.as_ptr(), name.len());
     }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn set_hostname(_name: &str) {
+    eprintln!("Warning: hostname setup requires Linux; skipping");
 }
 
 fn main() {
