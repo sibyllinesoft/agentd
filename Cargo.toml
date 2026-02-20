@@ -171,9 +171,6 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono"
 # Security and sandboxing
 libc = "0.2"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-nix = { version = "0.29", features = ["process", "mount", "user", "fs", "sched"] }
-
 # Metrics
 prometheus = { workspace = true }
 once_cell = { workspace = true }
@@ -244,6 +241,9 @@ tonic-build = { version = "0.12", optional = true }
 [[example]]
 name = "test_isolation_demo"
 path = "examples/test_isolation_demo.rs"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { version = "0.29", features = ["process", "mount", "user", "fs", "sched"] }
 
 [features]
 default = ["landlock"]
