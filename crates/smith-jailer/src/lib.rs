@@ -4,14 +4,29 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
 pub mod cgroups;
+
+#[cfg(target_os = "linux")]
 pub mod landlock;
+#[cfg(not(target_os = "linux"))]
+#[path = "landlock_stub.rs"]
+pub mod landlock;
+
+#[cfg(target_os = "linux")]
 pub mod namespaces;
+#[cfg(not(target_os = "linux"))]
+#[path = "namespaces_stub.rs"]
+pub mod namespaces;
+
+#[cfg(target_os = "linux")]
+pub mod seccomp;
+#[cfg(not(target_os = "linux"))]
+#[path = "seccomp_stub.rs"]
 pub mod seccomp;
 
-// Security test modules
-#[cfg(test)]
+// Security test modules (Linux-only: depend on fork(), seccomp, landlock)
+#[cfg(all(test, target_os = "linux"))]
 pub mod landlock_security_tests;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub mod seccomp_security_tests;
 
 use cgroups::{CgroupConfig, CgroupManager, CgroupStats};
@@ -593,6 +608,7 @@ impl Jailer {
     }
 
     /// Drop all capabilities and switch to unprivileged user
+    #[cfg(target_os = "linux")]
     fn drop_privileges(&self) -> Result<()> {
         let current_uid = unsafe { libc::geteuid() };
         info!(current_uid = current_uid, "Evaluating privilege drop");
@@ -634,6 +650,14 @@ impl Jailer {
         }
 
         info!("Successfully dropped privileges");
+        Ok(())
+    }
+
+    /// Drop privileges (stub: no-op on non-Linux platforms).
+    /// On macOS, VM-level isolation via Gondolin handles security boundaries.
+    #[cfg(not(target_os = "linux"))]
+    fn drop_privileges(&self) -> Result<()> {
+        warn!("Privilege drop not available on this platform; skipping");
         Ok(())
     }
 }

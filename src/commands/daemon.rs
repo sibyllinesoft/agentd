@@ -2439,6 +2439,27 @@ impl IntentHandler for DaemonIntentHandler {
     }
 }
 
+/// Resolve platform-appropriate isolation backend when set to `"auto"`.
+///
+/// - Linux: `"auto"` → `"landlock"`
+/// - Non-Linux (macOS, etc.): `"auto"` → `"gondolin"`
+///
+/// Explicit values are always preserved.
+fn resolve_isolation_backend(isolation_backend: String) -> String {
+    let normalized = normalize_backend_name(&isolation_backend);
+    if normalized != "auto" {
+        return isolation_backend;
+    }
+
+    if cfg!(target_os = "linux") {
+        info!("Auto-detected Linux: using landlock isolation backend");
+        "landlock".to_string()
+    } else {
+        info!("Auto-detected non-Linux platform: using gondolin isolation backend");
+        "gondolin".to_string()
+    }
+}
+
 /// Handles the daemon command
 pub struct DaemonCommand;
 
@@ -2450,13 +2471,14 @@ impl DaemonCommand {
         capability_digest: String,
         isolation_backend: String,
     ) -> Result<()> {
+        let isolation_backend = resolve_isolation_backend(isolation_backend);
         log_daemon_startup(demo_mode);
         let validated_capability_digest = validate_capability_digest(capability_digest)?;
         let config = load_and_validate_config(&config_path).await?;
         validate_mode_backend_compatibility(&config, demo_mode, &isolation_backend)?;
         let derivations = load_policy_derivations(&config).await?;
 
-        validate_security_capabilities(&config, demo_mode)?;
+        validate_security_capabilities(&config, demo_mode, &isolation_backend)?;
 
         let daemon_services = initialize_daemon_services(&config).await?;
         let nats_clients = initialize_nats_clients(&config, autobootstrap).await?;
@@ -2621,10 +2643,11 @@ fn validate_mode_backend_compatibility(
     isolation_backend: &str,
 ) -> Result<()> {
     if config.executor.security.strict_sandbox && is_host_direct_backend(isolation_backend) {
-        if demo_mode {
+        if demo_mode || !cfg!(target_os = "linux") {
             warn!(
                 backend = isolation_backend,
-                "Strict sandbox is configured but host-direct backend requested in demo mode"
+                "Strict sandbox is configured but host-direct backend requested — \
+                 sandbox enforcement relaxed"
             );
             return Ok(());
         }
@@ -3405,5 +3428,27 @@ mod tests {
     fn test_daemon_command_struct() {
         let _cmd = DaemonCommand;
         assert!(std::mem::size_of::<DaemonCommand>() == 0); // Zero-sized type
+    }
+
+    #[test]
+    fn test_resolve_isolation_backend_auto() {
+        let backend = resolve_isolation_backend("auto".to_string());
+        if cfg!(target_os = "linux") {
+            assert_eq!(backend, "landlock");
+        } else {
+            assert_eq!(backend, "gondolin");
+        }
+    }
+
+    #[test]
+    fn test_resolve_isolation_backend_explicit_preserved() {
+        let backend = resolve_isolation_backend("container".to_string());
+        assert_eq!(backend, "container");
+    }
+
+    #[test]
+    fn test_resolve_isolation_backend_explicit_landlock_preserved() {
+        let backend = resolve_isolation_backend("landlock".to_string());
+        assert_eq!(backend, "landlock");
     }
 }

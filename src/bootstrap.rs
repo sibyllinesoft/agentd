@@ -139,14 +139,33 @@ pub async fn run() -> Result<()> {
 }
 
 /// Perform security guardrail checks before starting the daemon. In demo mode
-/// the checks are logged but do not abort startup.
-pub fn validate_security_capabilities(config: &Config, demo_mode: bool) -> Result<()> {
+/// the checks are logged but do not abort startup. On non-Linux platforms, a
+/// non-Linux-compatible isolation backend (gondolin, host-direct, etc.) is
+/// accepted without requiring `--demo`.
+pub fn validate_security_capabilities(
+    config: &Config,
+    demo_mode: bool,
+    isolation_backend: &str,
+) -> Result<()> {
     if !cfg!(target_os = "linux") {
-        if demo_mode {
-            warn!("⚠️  Running on non-Linux OS in demo mode - security features disabled");
+        let normalized = isolation_backend
+            .trim()
+            .to_ascii_lowercase()
+            .replace('_', "-");
+        let is_non_linux_backend = matches!(
+            normalized.as_str(),
+            "none" | "host" | "host-direct" | "workstation" | "gondolin"
+        );
+        if demo_mode || is_non_linux_backend {
+            warn!(
+                "Running on non-Linux OS with backend '{}' — Linux security features disabled",
+                isolation_backend
+            );
         } else {
             anyhow::bail!(
-                "Executor requires Linux (kernel >= 5.15 for Landlock v2+). Use --demo for development."
+                "Isolation backend '{}' requires Linux (kernel >= 5.15). \
+                 Use --isolation auto (resolves to gondolin on macOS) or --demo for development.",
+                isolation_backend
             );
         }
     }
@@ -261,7 +280,7 @@ mod tests {
         let config = create_test_config(&temp_dir);
 
         // Demo mode should always succeed
-        let result = validate_security_capabilities(&config, true);
+        let result = validate_security_capabilities(&config, true, "landlock");
         assert!(result.is_ok());
     }
 
@@ -270,19 +289,29 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config = create_test_config(&temp_dir);
 
-        // On Linux, non-demo mode should succeed
+        // On Linux, non-demo mode with landlock should succeed
         #[cfg(target_os = "linux")]
         {
-            let result = validate_security_capabilities(&config, false);
+            let result = validate_security_capabilities(&config, false, "landlock");
             assert!(result.is_ok());
         }
 
-        // On non-Linux, non-demo mode should fail
+        // On non-Linux, landlock without demo should fail
         #[cfg(not(target_os = "linux"))]
         {
-            let result = validate_security_capabilities(&config, false);
+            let result = validate_security_capabilities(&config, false, "landlock");
             assert!(result.is_err());
         }
+    }
+
+    #[test]
+    fn test_validate_security_capabilities_non_linux_with_host_direct_backend() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config(&temp_dir);
+
+        // host-direct backend should succeed on any platform without demo
+        let result = validate_security_capabilities(&config, false, "host-direct");
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -292,7 +321,7 @@ mod tests {
         config.executor.landlock_enabled = true;
 
         // Should work in demo mode regardless of landlock setting
-        let result = validate_security_capabilities(&config, true);
+        let result = validate_security_capabilities(&config, true, "landlock");
         assert!(result.is_ok());
     }
 
@@ -377,7 +406,7 @@ mod tests {
 
         // In CI/tests we typically run as non-root
         // Demo mode should always succeed
-        let result = validate_security_capabilities(&config, true);
+        let result = validate_security_capabilities(&config, true, "landlock");
         assert!(result.is_ok());
     }
 
@@ -418,7 +447,7 @@ mod tests {
         config.executor.landlock_enabled = true;
 
         // Demo mode should work regardless
-        let result = validate_security_capabilities(&config, true);
+        let result = validate_security_capabilities(&config, true, "landlock");
         assert!(result.is_ok());
     }
 

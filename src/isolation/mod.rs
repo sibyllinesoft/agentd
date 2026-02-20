@@ -13,6 +13,7 @@
 pub mod container;
 #[cfg(target_os = "linux")]
 pub mod firecracker;
+pub mod gondolin;
 pub mod host_direct;
 pub mod linux;
 
@@ -20,6 +21,7 @@ pub mod linux;
 pub use container::ContainerBackend;
 #[cfg(target_os = "linux")]
 pub use firecracker::{FirecrackerBackend, FirecrackerConfig};
+pub use gondolin::GondolinBackend;
 pub use host_direct::HostDirectBackend;
 pub use linux::LinuxNativeBackend;
 
@@ -135,6 +137,12 @@ fn register_builtin_backends(registry: &mut BackendRegistry) -> anyhow::Result<(
         "host-direct",
         &["none", "host", "workstation", "host_direct"],
         Arc::new(|work_root| Ok(Arc::new(HostDirectBackend::new(work_root)))),
+    )?;
+
+    registry.register_backend(
+        "gondolin",
+        &[],
+        Arc::new(|work_root| Ok(Arc::new(GondolinBackend::new(work_root)))),
     )?;
 
     registry.register_backend(

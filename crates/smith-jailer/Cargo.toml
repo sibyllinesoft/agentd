@@ -32,11 +32,13 @@ uuid = { workspace = true, features = ["v4", "serde"] }
 
 # Security and sandboxing
 libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.29", features = ["process", "mount", "user", "fs", "sched"] }
 
 # Internal dependencies
-smith-protocol = { path = "../smith-protocol", version = "0.1.1" }
-smith-config = { path = "../smith-config", version = "0.1.1" }
+smith-protocol = { path = "../smith-protocol", version = "0.1.2" }
+smith-config = { path = "../smith-config", version = "0.1.2" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

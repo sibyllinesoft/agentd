@@ -209,7 +209,12 @@ impl SelfTestCommand {
 
     async fn run_configuration_validation(config: &Config) -> bool {
         println!("\n⚙️  Configuration Validation:");
-        match validate_security_capabilities(config, false) {
+        let default_backend = if cfg!(target_os = "linux") {
+            "landlock"
+        } else {
+            "gondolin"
+        };
+        match validate_security_capabilities(config, false, default_backend) {
             Ok(_) => {
                 println!("└─ Security Configuration: ✅ Valid");
                 true
